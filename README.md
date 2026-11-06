@@ -83,7 +83,9 @@ promo-finder --input path/to/show_folder --out outputs/llm --backend llm
 Keys are read from the environment or a git-ignored `.env` file in the working directory.
 
 **3. Use the web app** ([hosted version](https://kuku-promo-finder-23119038.streamlit.app)). Upload a `.zip`
-of episode screenplays, then inspect each promo next to its script:
+of episode screenplays, then inspect each promo next to its script. While it runs, a live copy of the
+flowchart under [How it works](#how-it-works) shows which stage is active, what each stage produced, and
+any stage that fails or is skipped:
 
 ```bash
 streamlit run app.py
@@ -123,12 +125,13 @@ See [`tests/fixtures/synthetic_show`](tests/fixtures/synthetic_show) for two com
 flowchart LR
     A[Episode screenplays] --> B[Parse<br/><i>code</i>]
     B --> C{Backend}
-    C -->|llm| D[Propose promos per episode<br/><i>LLM</i>]
-    C -->|rules| E[Score every shot-aligned<br/>20-60 s window<br/><i>code</i>]
+    C -->|hybrid| D[Propose promos per episode<br/><i>LLM</i>]
+    C -->|rules only| E[Score every shot-aligned<br/>20-60 s window<br/><i>code</i>]
     D --> F[Validate and snap<br/><i>code</i>]
     F -->|errors| G[Repair once<br/><i>LLM</i>]
     G --> F
     F --> H[Cross-episode montages<br/><i>LLM</i>]
+    F -.->|no valid promo:<br/>rules fallback| E
     E --> I[Score and rank<br/><i>code</i>]
     H --> I
     I --> J[promos.json / .csv / report.md]
@@ -305,6 +308,7 @@ promo_finder/
 ├── prompts.py         all prompts
 ├── llm_backend.py     per-episode proposals, repair loop, montages, raw logging
 ├── rank.py            final score and diversity-aware posting order
+├── progress.py        live pipeline map for the web app (Graphviz DOT)
 ├── config.py          every tunable and the provider presets
 ├── run.py             CLI (promo-finder)
 └── evaluate.py        compare against editor picks (promo-finder-eval)

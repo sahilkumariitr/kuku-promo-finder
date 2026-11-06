@@ -15,6 +15,7 @@ import streamlit as st
 
 from promo_finder.config import Config, PROVIDERS
 from promo_finder.parse import load_show, fmt
+from promo_finder.progress import Pipeline
 from promo_finder.rank import rank
 from promo_finder import rules_backend
 
@@ -55,30 +56,76 @@ def parse_filter(s, nums):
     return [n for n in nums if n in want]
 
 
+ran_now = False
 if go and up is not None:
+    ran_now = True
+    st.subheader("Pipeline")
+    map_col, log_col = st.columns([2, 3])
+    chart = map_col.empty()
+    pipe = Pipeline(on_change=lambda p: chart.graphviz_chart(p.to_dot(), width="stretch"))
+    pipe.set_mode(hybrid=backend == HYBRID)
     tmp = Path(tempfile.mkdtemp())
     with zipfile.ZipFile(io.BytesIO(up.getvalue())) as z:
         for m in z.infolist():  # extract .txt only, flattened, no path traversal
             if m.filename.lower().endswith(".txt") and not m.is_dir():
                 (tmp / Path(m.filename).name).write_bytes(z.read(m))
-    eps = load_show(tmp)
+    n_files = len([f for f in tmp.glob("*.txt") if not f.name.startswith(".")])
+    pipe("input", "done", f"{n_files} .txt file(s)")
+    pipe("parse", "active")
+    parsed = load_show(tmp)
+    not_scripts = [Path(e.path).name for e in parsed if not e.blocks]  # no timestamped [mm:ss-mm:ss] lines
+    eps = [e for e in parsed if e.blocks]
     keep = set(parse_filter(eps_filter, [e.number for e in eps]))
     eps = [e for e in eps if e.number in keep]
+    if not_scripts:
+        st.warning(f"Skipped {len(not_scripts)} file(s) with no timestamped screenplay lines: "
+                   + ", ".join(not_scripts[:5]) + ("…" if len(not_scripts) > 5 else ""))
+    if not eps:
+        pipe.fail("no screenplays found", "parse")
+        st.session_state.update(promos=None, pipeline_dot=None)
+        st.error("No episode screenplays found. Upload a .zip of episode .txt screenplays "
+                 "(e.g. episode-001.txt), not the tool's output files.")
+        st.stop()
+    pipe("parse", "done", f"{len(eps)} episode(s)")
+    unnumbered = [Path(e.path).name for e in eps if e.number == 0]
+    if unnumbered:
+        st.warning("No episode number found in: " + ", ".join(unnumbered[:5])
+                   + ". Is this a screenplay? Episodes need an `EPISODE NUMBER:` line or a name like episode-001.txt.")
+    pipe("backend", "done", "hybrid" if backend == HYBRID else "rules only")
     show = Path(up.name).stem
-    with st.status(f"Processing {len(eps)} episodes…", expanded=True) as status:
+    with log_col.status(f"Processing {len(eps)} episode(s)…", expanded=True) as status:
         if backend == HYBRID:
             from promo_finder import llm_backend
             os.environ["LLM_API_KEY"] = key
-            promos, stats = llm_backend.run(eps, cfg, tmp / "raw_llm", show, log=st.write)
+            try:
+                promos, stats = llm_backend.run(eps, cfg, tmp / "raw_llm", show, log=st.write, progress=pipe)
+            except SystemExit as e:  # no key, or the provider refused every request
+                pipe.fail("stopped")
+                status.update(label="Stopped", state="error")
+                st.session_state.update(promos=None, pipeline_dot=None)
+                st.error(str(e))
+                st.stop()
         else:
-            promos, stats = rules_backend.run(eps, cfg, log=lambda *_: None), {}
-        status.update(label=f"Done: {len(promos)} promos", state="complete")
-    st.session_state.update(promos=rank(promos, cfg), eps={e.number: e for e in eps}, show=show, stats=stats)
+            promos, stats = rules_backend.run(eps, cfg, log=lambda *_: None, progress=pipe), {}
+        status.update(label=f"Done: {len(promos)} promos (log)", state="complete", expanded=False)
+    if stats.get("incomplete"):
+        st.warning("The model stopped partway, so this run is incomplete. " + stats["incomplete"])
+    pipe("rank", "active")
+    ranked = rank(promos, cfg)
+    pipe("rank", "done", f"{len(ranked)} promos")
+    pipe("output", "done", "see below")
+    pipe("editor", "active", "your turn")
+    st.session_state.update(promos=ranked, eps={e.number: e for e in eps}, show=show, stats=stats,
+                            pipeline_dot=pipe.to_dot())
 
 promos = st.session_state.get("promos")
 if not promos:
     st.info("Upload a zip of episode screenplays and press **Find promos**.")
     st.stop()
+
+if not ran_now and st.session_state.get("pipeline_dot"):
+    with st.expander("Pipeline for this run"):
+        st.graphviz_chart(st.session_state["pipeline_dot"], width="stretch")
 
 eps = st.session_state["eps"]
 df = pd.DataFrame([{
