@@ -24,9 +24,14 @@ st.caption("Finds 20–60s promo clips (hook in 3s → cliffhanger cut → makes
 
 with st.sidebar:
     up = st.file_uploader("Show screenplays (.zip of episode .txt files)", type="zip")
-    backend = st.radio("Backend", ["rules (no API key)", "LLM"], index=0)
+    RULES, HYBRID = "Rules only (no API key)", "Hybrid: LLM + rules"
+    backend = st.radio(
+        "Backend", [RULES, HYBRID], index=0,
+        help="Rules only: deterministic search, no key needed.  \n"
+             "Hybrid: the LLM proposes clips; rules snap them to clean cuts, re-score them "
+             "(final score = 70% LLM + 30% rules) and fill any episode the LLM misses.")
     cfg = Config()
-    if backend == "LLM":
+    if backend == HYBRID:
         cfg.provider = st.selectbox("Provider", list(PROVIDERS), index=0)
         cfg.model = st.text_input("Model", PROVIDERS[cfg.provider][1])
         key = st.text_input("API key", type="password", help="Used for this session only, never stored.")
@@ -61,7 +66,7 @@ if go and up is not None:
     eps = [e for e in eps if e.number in keep]
     show = Path(up.name).stem
     with st.status(f"Processing {len(eps)} episodes…", expanded=True) as status:
-        if backend == "LLM":
+        if backend == HYBRID:
             from promo_finder import llm_backend
             os.environ["LLM_API_KEY"] = key
             promos, stats = llm_backend.run(eps, cfg, tmp / "raw_llm", show, log=st.write)
