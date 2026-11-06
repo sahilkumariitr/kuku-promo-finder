@@ -17,6 +17,7 @@ from .promo import Promo, Segment, parse_time, validate, rule_score
 from .llm import LLMClient, LLMError, extract_json
 from . import prompts as P
 from . import rules_backend
+from .progress import noop
 
 
 class StopLLM(Exception):
@@ -82,7 +83,7 @@ def _to_promos(data: dict, default_ep: int | None, kind: str, max_items: int) ->
 
 
 class LLMBackend:
-    def __init__(self, cfg, raw_dir: Path, show_name: str, log=print):
+    def __init__(self, cfg, raw_dir: Path, show_name: str, log=print, progress=noop):
         base, model, key = cfg.llm_settings()
         local = any(h in base for h in ("localhost", "127.0.0.1", "0.0.0.0", "host.docker.internal"))
         if not key and not local:
@@ -92,6 +93,8 @@ class LLMBackend:
                                 min_interval=cfg.pacing(), overload_retries=cfg.overload_retries,
                                 retry_base=cfg.retry_base, log=log)
         self.cfg, self.raw_dir, self.show, self.log = cfg, raw_dir, show_name, log
+        self.progress = progress
+        self.n_checked = self.n_valid = self.n_dropped = self.n_repairs = 0
         self.raw_dir.mkdir(parents=True, exist_ok=True)
         self.cache_dir = raw_dir.parent / "cache"
         if cfg.cache:
@@ -157,6 +160,10 @@ class LLMBackend:
         return good, errs
 
     def _validated(self, data, text, eps, default_ep, kind, tag, system, user, max_items):
+        stage = "validate" if kind == "single" else "montages"
+        if kind == "single":
+            self.n_checked += 1
+            self.progress("validate", "active")
         promos = _to_promos(data or {}, default_ep, kind, max_items)
         good, errs = self._check(promos, eps, kind)
         # A repair costs a whole request, and free tiers allow ~20/day: only spend one when an episode
@@ -167,14 +174,21 @@ class LLMBackend:
             uncovered = [] if good else ["montage"]
         if errs and uncovered and self.cfg.repair_rounds > 0 and data is not None:
             self.log(f"    {tag}: {len(errs)} invalid promo(s) leave {uncovered} uncovered; asking for a repair")
+            self.n_repairs += 1
+            self.progress("repair", "active", f"{self.n_repairs} request(s)")
             fixed_data, fixed_text = self._call(tag, system, P.REPAIR_USER.format(
                 original=user, errors="\n".join(errs), previous=text))
             if fixed_data is not None:
                 good2, errs2 = self._check(_to_promos(fixed_data, default_ep, kind, max_items), eps, kind)
                 if len(good2) >= len(good):
                     good, errs = good2, errs2
+            self.progress(stage, "active")
         if errs:
             self.log(f"    {tag}: dropped {len(errs)} invalid promo(s), e.g. {errs[0][:110]}")
+        if kind == "single":
+            self.n_valid += len(good)
+            self.n_dropped += len(errs)
+            self.progress("validate", None, f"{self.n_valid} valid, {self.n_dropped} dropped")
         return good
 
     # ---------- stages ----------
@@ -221,8 +235,12 @@ class LLMBackend:
         return promos
 
 
-def run(episodes: list[Episode], cfg, raw_dir: Path, show_name: str, log=print) -> tuple[list[Promo], dict]:
-    be = LLMBackend(cfg, raw_dir, show_name, log)
+STOP_NOTE = {"auth": "API key rejected", "model": "model unavailable", "quota_day": "daily quota used up"}
+
+
+def run(episodes: list[Episode], cfg, raw_dir: Path, show_name: str, log=print,
+        progress=noop) -> tuple[list[Promo], dict]:
+    be = LLMBackend(cfg, raw_dir, show_name, log, progress)
     premise = episodes[0].logline if episodes else ""
     k = max(1, int(cfg.episodes_per_call))
     batches = [episodes[i:i + k] for i in range(0, len(episodes), k)]
@@ -233,14 +251,17 @@ def run(episodes: list[Episode], cfg, raw_dir: Path, show_name: str, log=print) 
     stopped: StopLLM | None = None
     singles: list[Promo] = []
     fallback_eps: list[int] = []
-    for batch in batches:
+    for bi, batch in enumerate(batches, 1):
         ps: list[Promo] = []
         if stopped is None:
+            eps_note = f"ep {batch[0].number}" + (f"-{batch[-1].number}" if len(batch) > 1 else "")
+            progress("propose", "active", f"request {bi}/{len(batches)} ({eps_note})")
             try:
                 ps = be.batch(batch, premise)
             except StopLLM as e:
                 stopped = e
                 log(f"  STOPPED calling the model: {e}")
+                progress("propose", "error", STOP_NOTE.get(e.kind, "stopped"))
         for ep in batch:
             mine = [p for p in ps if p.segments[0].episode == ep.number]
             if not mine and cfg.rules_fallback:
@@ -249,12 +270,18 @@ def run(episodes: list[Episode], cfg, raw_dir: Path, show_name: str, log=print) 
                     p.backend = "rules-fallback"
                     p.flags.append("fallback: rules backend pick (no valid LLM promo for this episode)")
                 fallback_eps.append(ep.number)
+                progress("rules", "fallback", f"fallback for {len(fallback_eps)} episode(s)")
             log(f"  ep {ep.number:>3}: {len(mine)} promo(s)" + ("  [rules fallback]" if
                                                                  mine and mine[0].backend == "rules-fallback" else ""))
             singles += mine
 
     if stopped is not None and not any(p.backend == "llm" for p in singles):
         raise SystemExit(f"Stopping: the model endpoint refused every request.\n{stopped}")
+
+    if stopped is None:
+        progress("propose", "done", f"{len(batches)} request(s) · {', '.join(be.answered_by) or 'no answers'}")
+    progress("validate", *(("done", None) if be.n_checked else ("skipped", "nothing to check")))
+    progress("repair", *(("done", f"{be.n_repairs} request(s)") if be.n_repairs else ("skipped", "not needed")))
 
     montage: list[Promo] = []
     if stopped is None:
@@ -267,12 +294,24 @@ def run(episodes: list[Episode], cfg, raw_dir: Path, show_name: str, log=print) 
             ps.sort(key=lambda p: -sum(p.llm_scores.values()))
             pool += ps[:cfg.pool_per_episode]
         pool.sort(key=lambda p: -sum(p.llm_scores.values()))
+        if cfg.montages <= 0:
+            progress("montages", "skipped", "turned off")
+        elif len(by_ep) < 2:
+            progress("montages", "skipped", "needs 2+ episodes")
+        else:
+            progress("montages", "active", "1 request")
         try:
             montage = be.montages(episodes, pool[:60])
         except StopLLM as e:
             stopped = e
             log(f"  STOPPED before montages: {e}")
+            progress("montages", "error", STOP_NOTE.get(e.kind, "stopped"))
+        else:
+            if cfg.montages > 0 and len(by_ep) >= 2:
+                progress("montages", "done", f"{len(montage)} promo(s)")
         log(f"  cross-episode: {len(montage)} promo(s)")
+    else:
+        progress("montages", "skipped", "model stopped")
 
     c = be.client
     stats = {"model": be.model_name, "models_used": be.answered_by, "live_requests_by_model": c.by_model, "calls": c.calls, "http_requests": c.attempts,

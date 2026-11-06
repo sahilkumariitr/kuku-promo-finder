@@ -145,3 +145,27 @@ def test_llm_backend_stops_on_fatal_error(fake_api, tmp_path, model, needle):
     assert needle in r.stderr.lower()
     logs = list((tmp_path / "out" / "raw_llm").glob("*.json"))
     assert len(logs) == 1 and len(logs[0].read_text().splitlines()) == 1
+
+
+def test_progress_map_tracks_both_backends(eps, fake_api, tmp_path, monkeypatch):
+    """The live pipeline map in the web app: each stage ends done or skipped, never stuck running."""
+    from promo_finder.progress import Pipeline
+    from promo_finder import llm_backend
+    pipe = Pipeline()
+    pipe.set_mode(hybrid=False)
+    rules_backend.run(eps, Config(), log=lambda *a: None, progress=pipe)
+    assert pipe.state["rules"] == "done" and pipe.state["propose"] == "skipped"
+
+    for k, v in {"LLM_BASE_URL": fake_api, "LLM_MODEL": "fake", "LLM_MIN_INTERVAL": "0", "LLM_RETRY_BASE": "0"}.items():
+        monkeypatch.setenv(k, v)
+    monkeypatch.delenv("LLM_FALLBACK_MODELS", raising=False)
+    cfg = Config()
+    cfg.provider, cfg.cache = "ollama", False
+    pipe = Pipeline()
+    pipe.set_mode(hybrid=True)
+    llm_backend.run(eps, cfg, tmp_path / "raw", "show", log=lambda *a: None, progress=pipe)
+    assert {n: pipe.state[n] for n in ("propose", "validate", "repair", "montages")} == dict.fromkeys(
+        ("propose", "validate", "repair", "montages"), "done")  # the fake API forces one repair
+    assert pipe.state["rules"] == "skipped" and "active" not in pipe.state.values()
+    dot = pipe.to_dot()
+    assert dot.startswith("digraph") and "✓ Propose promos" in dot

@@ -4,6 +4,7 @@ from __future__ import annotations
 from .parse import Episode, fmt
 from .promo import Promo, Segment, rule_score, hook_text, cliff_text
 from . import features as F
+from .progress import noop
 
 
 def _overlap(a: Promo, b: Promo) -> float:
@@ -69,10 +70,12 @@ def episode_promos(ep: Episode, cfg) -> list[Promo]:
     return kept
 
 
-def run(episodes: list[Episode], cfg, log=print) -> list[Promo]:
+def run(episodes: list[Episode], cfg, log=print, progress=noop) -> list[Promo]:
     out = []
-    for ep in episodes:
+    for i, ep in enumerate(episodes, 1):
+        progress("rules", "active", f"episode {i}/{len(episodes)}")
         ps = episode_promos(ep, cfg)
         log(f"  ep {ep.number:>3}: {len(ps)} promos" + (f" (best {ps[0].score:.3f})" if ps else ""))
         out += ps
+    progress("rules", "done", f"{len(out)} candidates")
     return out
