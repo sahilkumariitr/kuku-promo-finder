@@ -50,7 +50,21 @@ def write_outputs(promos, out: Path, meta: dict):
     (out / "report.md").write_text("\n".join(lines) + "\n", encoding="utf-8")
 
 
+def load_dotenv(path: str = ".env") -> None:
+    """Read KEY=VALUE lines from .env (git-ignored) so keys never go on the command line."""
+    import os
+    p = Path(path)
+    if not p.is_file():
+        return
+    for line in p.read_text(encoding="utf-8").splitlines():
+        line = line.strip()
+        if line and not line.startswith("#") and "=" in line:
+            k, v = line.split("=", 1)
+            os.environ.setdefault(k.strip(), v.strip().strip('"').strip("'"))
+
+
 def main(argv=None):
+    load_dotenv()
     ap = argparse.ArgumentParser(description="Find ranked promo clips in microdrama screenplays.")
     ap.add_argument("--input", required=True, help="folder containing episode .txt screenplays")
     ap.add_argument("--out", default="outputs", help="output folder")

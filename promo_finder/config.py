@@ -2,7 +2,14 @@
 from __future__ import annotations
 
 import os
-import tomllib
+
+try:
+    import tomllib  # Python 3.11+
+except ModuleNotFoundError:  # Python 3.9/3.10: TOML config needs `pip install tomli`
+    try:
+        import tomli as tomllib
+    except ModuleNotFoundError:
+        tomllib = None
 from dataclasses import dataclass, field, fields
 
 # OpenAI-compatible endpoints. Swapping models = changing one line (or LLM_PROVIDER env var).
@@ -64,6 +71,8 @@ class Config:
 def load_config(path: str | None = None, **overrides) -> Config:
     cfg = Config()
     if path:
+        if tomllib is None:
+            raise SystemExit("--config needs Python 3.11+ or `pip install tomli`")
         with open(path, "rb") as f:
             data = tomllib.load(f)
         names = {f.name for f in fields(Config)}

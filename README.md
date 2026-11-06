@@ -1,7 +1,7 @@
 # Promo Finder
 
 [![CI](https://github.com/sahilkumariitr/kuku-promo-finder/actions/workflows/ci.yml/badge.svg)](https://github.com/sahilkumariitr/kuku-promo-finder/actions/workflows/ci.yml)
-![Python](https://img.shields.io/badge/python-3.11%2B-blue)
+![Python](https://img.shields.io/badge/python-3.9%2B-blue)
 ![License](https://img.shields.io/badge/license-MIT-green)
 
 **Promo Finder reads the timestamped screenplays of a vertical microdrama and returns a ranked list of
@@ -49,7 +49,7 @@ A promo, as defined in the brief, is a 20–60 s clip that:
 
 ## Quick start
 
-Requires Python 3.11+.
+Requires Python 3.9+.
 
 ```bash
 git clone https://github.com/sahilkumariitr/kuku-promo-finder.git
@@ -67,9 +67,11 @@ promo-finder --input tests/fixtures/synthetic_show --out outputs/demo --backend 
 [Google AI Studio](https://aistudio.google.com/apikey) is enough:
 
 ```bash
-export GEMINI_API_KEY=your-key
+echo "GEMINI_API_KEY=your-key" > .env      # or: export GEMINI_API_KEY=your-key
 promo-finder --input path/to/show_folder --out outputs/llm --backend llm
 ```
+
+Keys are read from the environment or a git-ignored `.env` file in the working directory.
 
 **3. Use the web app.** Upload a `.zip` of episode screenplays, then inspect each promo next to its script:
 
