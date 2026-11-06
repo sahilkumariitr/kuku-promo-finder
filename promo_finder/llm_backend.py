@@ -60,6 +60,7 @@ class LLMBackend:
         self.raw_dir.mkdir(parents=True, exist_ok=True)
         self.model_name = model
         self.last_error = ""
+        self._logged: set[str] = set()
 
     def _call(self, tag: str, system: str, user: str) -> tuple[dict | None, str]:
         rec = {"model": self.model_name, "system": system, "user": user}
@@ -73,7 +74,9 @@ class LLMBackend:
             data, text = None, rec.get("response", "")
             if isinstance(e, LLMError) and e.fatal:
                 fatal = e
-        with open(self.raw_dir / f"{tag}.json", "a", encoding="utf-8") as f:
+        mode = "a" if tag in self._logged else "w"  # fresh file per run; repair rounds append
+        self._logged.add(tag)
+        with open(self.raw_dir / f"{tag}.json", mode, encoding="utf-8") as f:
             f.write(json.dumps(rec, ensure_ascii=False) + "\n")
         self.last_error = rec.get("error", "")
         if fatal is not None:
