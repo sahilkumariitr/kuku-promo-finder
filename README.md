@@ -257,12 +257,16 @@ What the comparison showed:
 - **The two backends mostly agree.** The LLM's top pick overlaps a rules pick in 45 of 50 episodes. The
   differences are story beats the rules undervalued (a fire, the hero revealing himself, an arrest).
 - **The LLM fixes the rules backend's known miss.** A strong confrontation that the rules rank #105 of 141
-  ranks #46 with the LLM, which chose a cut that carries the scene through.
+  ranks #45 with the LLM, which chose a cut that carries the scene through.
 - **The LLM's own scores are lenient.** 36 of 67 promos rated themselves 5/5/5 or 4/4/4, so on their own
   they barely order the list; the 30% blend with rule features is what separates them.
 - **Validation matters.** 67 of 68 proposals passed; 2 needed a small trim to fit 60 s.
-- **The fallback chain was needed.** Gemini 3.8 Flash returned HTTP 503 mid-run; 3.6 Flash answered three
-  of the five batches and the montage request needed a further fallback.
+- **The fallback chain was needed.** Gemini 3.8 Flash returned HTTP 503 mid-run, so 3.6 Flash answered three
+  of the five batches; later 3.8 Flash's daily quota ran out and 3.6 Flash answered the montage request.
+- **The cache made iteration free.** After fixing validation and ranking, re-running the whole show cost one
+  request (the montage) because the five batch answers came from cache.
+- **Cross-episode promos follow the story's arc**, e.g. a public humiliation in episode 1 cut against the
+  hero reclaiming his title much later.
 
 Manual review of top picks against the script, and the failures found along the way, are logged in
 [`docs/DESIGN.md`](docs/DESIGN.md#quality-review-log).
