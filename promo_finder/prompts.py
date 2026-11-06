@@ -30,7 +30,7 @@ Return JSON only:
   "hook": "what happens in the first 3 seconds (quote the line)",
   "cliffhanger": "the unresolved moment it cuts on (quote the line)",
   "why": "one line on why it works for a new viewer",
-  "needs_context": "what a stranger would NOT understand, or an empty string if nothing",
+  "needs_context": "what a stranger would NOT understand, or empty",
   "scores": {"hook": 1-5, "cliffhanger": 1-5, "standalone": 1-5}
 }]}"""
 
