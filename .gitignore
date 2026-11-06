@@ -8,3 +8,7 @@ __pycache__/
 .pytest_cache/
 .env
 config.toml
+
+# macOS / local helpers
+.DS_Store
+run_gemini.sh
