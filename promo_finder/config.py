@@ -14,7 +14,7 @@ from dataclasses import dataclass, field, fields
 
 # OpenAI-compatible endpoints. Swapping models = changing one line (or LLM_PROVIDER env var).
 PROVIDERS = {
-    "gemini": ("https://generativelanguage.googleapis.com/v1beta/openai/", "gemini-2.5-flash", "GEMINI_API_KEY"),
+    "gemini": ("https://generativelanguage.googleapis.com/v1beta/openai/", "gemini-3.8-flash", "GEMINI_API_KEY"),
     "groq": ("https://api.groq.com/openai/v1/", "llama-3.3-70b-versatile", "GROQ_API_KEY"),
     "openrouter": ("https://openrouter.ai/api/v1/", "meta-llama/llama-3.3-70b-instruct:free", "OPENROUTER_API_KEY"),
     "openai": ("https://api.openai.com/v1/", "gpt-4o-mini", "OPENAI_API_KEY"),

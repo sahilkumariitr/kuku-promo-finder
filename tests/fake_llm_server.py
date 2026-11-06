@@ -23,6 +23,15 @@ class H(BaseHTTPRequestHandler):
 
     def do_POST(self):
         body = json.loads(self.rfile.read(int(self.headers["Content-Length"])))
+        if body.get("model") == "retired":  # mimic a provider retiring a model
+            err = json.dumps([{"error": {"code": 404, "status": "NOT_FOUND",
+                                         "message": "This model models/retired is no longer available."}}]).encode()
+            self.send_response(404)
+            self.send_header("Content-Type", "application/json")
+            self.send_header("Content-Length", str(len(err)))
+            self.end_headers()
+            self.wfile.write(err)
+            return
         user = body["messages"][1]["content"]
         if "CROSS-EPISODE" in body["messages"][0]["content"]:
             rows = re.findall(r"^M\d+ \| ep (\d+) \| (\d\d:\d\d\.\d\d)-(\d\d:\d\d\.\d\d)", user, re.M)

@@ -2,7 +2,7 @@
 
 # --- model (any OpenAI-compatible endpoint) ---
 provider = "gemini"          # gemini | groq | openrouter | openai | ollama
-# model = "gemini-2.5-flash" # leave unset for the provider default
+# model = "gemini-3.8-flash" # leave unset for the provider default
 # base_url = "https://my-company-gateway/v1/"   # point at Kuku's own API to swap in a stronger model
 # api_key_env = "MY_KEY_VAR"
 temperature = 0.3

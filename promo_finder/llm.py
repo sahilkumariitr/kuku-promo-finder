@@ -13,7 +13,15 @@ import urllib.request
 
 
 class LLMError(RuntimeError):
-    pass
+    def __init__(self, msg: str, status: int | None = None):
+        super().__init__(msg)
+        self.status = status
+
+    @property
+    def fatal(self) -> bool:
+        """Errors that will fail identically on every call: bad key, no access, unknown model."""
+        low = str(self).lower()
+        return self.status in (401, 403, 404) or (self.status == 400 and "api key" in low)
 
 
 class LLMClient:
@@ -40,7 +48,7 @@ class LLMClient:
                    "messages": [{"role": "system", "content": system}, {"role": "user", "content": user}]}
         if json_mode:
             payload["response_format"] = {"type": "json_object"}
-        last = None
+        last, status = None, None
         for attempt in range(self.max_retries + 1):
             try:
                 data = self._post(payload)
@@ -49,8 +57,8 @@ class LLMClient:
                     self.usage[k] += (data.get("usage") or {}).get(k, 0) or 0
                 return data["choices"][0]["message"]["content"] or ""
             except urllib.error.HTTPError as e:
-                body = e.read().decode(errors="replace")[:400]
-                last = f"HTTP {e.code}: {body}"
+                body = e.read().decode(errors="replace")[:600]
+                last, status = f"HTTP {e.code}: {body}", e.code
                 if e.code == 400 and json_mode and "response_format" in body:
                     payload.pop("response_format", None)  # provider without JSON mode
                     continue
@@ -59,7 +67,7 @@ class LLMClient:
             except (urllib.error.URLError, TimeoutError, KeyError, json.JSONDecodeError) as e:
                 last = repr(e)
             time.sleep(min(60, 4 * 2 ** attempt))  # free tiers rate-limit; back off
-        raise LLMError(last or "unknown error")
+        raise LLMError(last or "unknown error", status)
 
 
 def extract_json(text: str) -> dict:

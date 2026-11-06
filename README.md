@@ -187,7 +187,7 @@ LLM_MODEL=stronger-model LLM_API_KEY=... promo-finder ...   # any hosted model
 
 | Provider | Default model | Key variable |
 |---|---|---|
-| `gemini` | `gemini-2.5-flash` | `GEMINI_API_KEY` |
+| `gemini` | `gemini-3.8-flash` | `GEMINI_API_KEY` |
 | `groq` | `llama-3.3-70b-versatile` | `GROQ_API_KEY` |
 | `openrouter` | `meta-llama/llama-3.3-70b-instruct:free` | `OPENROUTER_API_KEY` |
 | `openai` | `gpt-4o-mini` | `OPENAI_API_KEY` |

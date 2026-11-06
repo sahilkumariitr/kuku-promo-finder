@@ -84,3 +84,22 @@ def test_llm_backend_end_to_end(tmp_path):
         assert raw and all(len(f.read_text().splitlines()) == 2 for f in raw)  # proposal + 1 repair round
     finally:
         srv.terminate()
+
+
+def test_llm_backend_stops_on_fatal_error(tmp_path):
+    """A retired model / bad key must stop the run after one call with a readable reason, not burn 50 calls."""
+    port = _free_port()
+    srv = subprocess.Popen([sys.executable, str(ROOT / "tests" / "fake_llm_server.py"), str(port)])
+    try:
+        time.sleep(0.8)
+        env = {**os.environ, "LLM_BASE_URL": f"http://127.0.0.1:{port}/v1/", "LLM_MODEL": "retired"}
+        out = tmp_path / "out"
+        r = subprocess.run([sys.executable, "-m", "promo_finder.run", "--input", DATA, "--out", str(out),
+                            "--backend", "llm", "--provider", "ollama"], env=env, cwd=ROOT,
+                           capture_output=True, text=True)
+        assert r.returncode != 0
+        assert "no longer available" in r.stderr
+        logs = list((out / "raw_llm").glob("*.json"))
+        assert len(logs) == 1 and len(logs[0].read_text().splitlines()) == 1  # exactly one call made
+    finally:
+        srv.terminate()

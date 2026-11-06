@@ -2,12 +2,21 @@
 from __future__ import annotations
 
 import json
+import re
 from pathlib import Path
 
 from .parse import Episode, fmt, transcript
 from .promo import Promo, Segment, parse_time, validate, rule_score
 from .llm import LLMClient, LLMError, extract_json
 from . import prompts as P
+
+
+def _short(err: str, n: int = 300) -> str:
+    """Pull the provider's human-readable message out of an error body."""
+    m = re.search(r'"message":\s*"((?:[^"\\]|\\.)*)"', err)
+    msg = m.group(1) if m else err
+    code = re.match(r"HTTP \d+", err)
+    return ((code.group(0) + ": ") if code and m else "") + msg[:n]
 
 
 def _clamp_score(x) -> int:
@@ -50,9 +59,11 @@ class LLMBackend:
         self.cfg, self.raw_dir, self.show, self.log = cfg, raw_dir, show_name, log
         self.raw_dir.mkdir(parents=True, exist_ok=True)
         self.model_name = model
+        self.last_error = ""
 
     def _call(self, tag: str, system: str, user: str) -> tuple[dict | None, str]:
         rec = {"model": self.model_name, "system": system, "user": user}
+        fatal = None
         try:
             text = self.client.chat(system, user)
             rec["response"] = text
@@ -60,8 +71,15 @@ class LLMBackend:
         except (LLMError, ValueError, json.JSONDecodeError) as e:
             rec["error"] = str(e)
             data, text = None, rec.get("response", "")
+            if isinstance(e, LLMError) and e.fatal:
+                fatal = e
         with open(self.raw_dir / f"{tag}.json", "a", encoding="utf-8") as f:
             f.write(json.dumps(rec, ensure_ascii=False) + "\n")
+        self.last_error = rec.get("error", "")
+        if fatal is not None:
+            raise SystemExit(f"Stopping: the model endpoint rejected the request and every call would fail "
+                             f"the same way.\n{_short(str(fatal))}\nFix the key/model (--model NAME or LLM_MODEL) "
+                             f"and run again.")
         return data, text
 
     def _validated(self, data, text, eps, default_ep, kind, tag, system):
@@ -90,7 +108,7 @@ class LLMBackend:
         tag = f"ep_{ep.number:03d}"
         data, text = self._call(tag, P.EPISODE_SYSTEM, user)
         if data is None:
-            self.log(f"    {tag}: model call failed, see raw log")
+            self.log(f"    {tag}: model call failed: {_short(self.last_error)}")
             return []
         promos = self._validated(data, text, eps, ep.number, "single", tag, P.EPISODE_SYSTEM)
         for p in promos:
