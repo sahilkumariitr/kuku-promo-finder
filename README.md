@@ -245,7 +245,7 @@ Kuku's confidential content and is **not** included in this repository.
 
 | | Rules backend (no key) | LLM backend (Gemini free tier) |
 |---|---|---|
-| Promos | 141 (1–3 per episode) | 67 single-episode + __MONTAGES__ cross-episode |
+| Promos | 141 (1–3 per episode) | 67 single-episode + 5 cross-episode |
 | Episodes covered | 50 / 50 | 50 / 50, no rules fallback needed |
 | Clip length | 20.7–53.5 s | 23.3–59.9 s |
 | Requests and cost | none | 6 requests (5 batches of 10 episodes + 1 montage), ~85k input / ~10k output tokens, $0 |
