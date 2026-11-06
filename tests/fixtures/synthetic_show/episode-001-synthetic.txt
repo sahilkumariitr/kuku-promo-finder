@@ -1,0 +1,114 @@
+EPISODE NUMBER: Episode 1
+EPISODE LOGLINE: Mara Vale is humiliated at her engagement party when her fiancé announces he is marrying her stepsister, until a silent stranger in the corner steps forward.
+CONTINUITY NOTES: First episode. Establishes Mara, her fiancé Victor, her stepsister Lena and the unnamed stranger.
+
+--- SCRIPT START ---
+
+SCENE 01
+Scene heading: INT. BALLROOM – NIGHT
+Scene start: 00:00.00
+Scene end: 01:01.50
+
+Actions and dialogue:
+
+**CAMERA:**
+Start: (00:00.00) | End: (00:03.00)
+Wide shot of a glittering ballroom; guests turn toward the staircase.
+
+**ACTION:**
+Start: (00:03.00) | End: (00:06.00)
+Mara descends the staircase in a silver gown, smiling at Victor.
+
+**VICTOR (Cold, Loud):**
+Start: (00:06.00) | End: (00:08.50)
+"Stop right there, Mara."
+
+**CAMERA:**
+Start: (00:08.50) | End: (00:10.50)
+Close-up on Mara's smile freezing.
+
+**MARA (Confused):**
+Start: (00:10.50) | End: (00:12.00)
+"Victor?"
+
+**VICTOR (Cruel, Smug):**
+Start: (00:12.00) | End: (00:15.00)
+"Everyone, I have an announcement. I am marrying Lena."
+
+**SOUND FX:**
+Start: (00:15.00) | End: (00:17.00)
+A collective gasp ripples through the ballroom.
+
+**CAMERA:**
+Start: (00:17.00) | End: (00:19.50)
+Close-up on Lena, beaming with cruel triumph.
+
+**LENA (Gloating, Mocking):**
+Start: (00:19.50) | End: (00:22.50)
+"Did you really think he would choose you, sister?"
+
+**MARA (Heartbroken, Trembling):**
+Start: (00:22.50) | End: (00:25.00)
+"You were my family."
+
+**LENA (Venomous):**
+Start: (00:25.00) | End: (00:27.50)
+"I was never your family."
+
+**CAMERA:**
+Start: (00:27.50) | End: (00:29.50)
+Medium shot of Victor taking Lena's hand.
+
+**VICTOR (Dismissive):**
+Start: (00:29.50) | End: (00:32.50)
+"You have nothing. No name, no money, no future."
+
+**ACTION:**
+Start: (00:32.50) | End: (00:35.00)
+Victor throws a glass of champagne into Mara's face.
+
+**MARA (Gasping):**
+Start: (00:35.00) | End: (00:36.50)
+"Ah!"
+
+**CAMERA:**
+Start: (00:36.50) | End: (00:39.50)
+Slow push-in on Mara, dripping, as the guests laugh.
+
+**GUEST (Mocking):**
+Start: (00:39.50) | End: (00:41.50)
+"Look at her. Pathetic."
+
+**MARA (Defiant, Steely):**
+Start: (00:41.50) | End: (00:44.50)
+"One day you will regret this."
+
+**VICTOR (Laughing, Arrogant):**
+Start: (00:44.50) | End: (00:47.00)
+"Who would ever stand with you?"
+
+**CAMERA:**
+Start: (00:47.00) | End: (00:49.50)
+Wide shot: a tall stranger in a dark coat rises from a corner table.
+
+**STRANGER (Low, Menacing):**
+Start: (00:49.50) | End: (00:52.50)
+"I would."
+
+**SOUND FX:**
+Start: (00:52.50) | End: (00:55.50)
+An ominous orchestral swell builds to a cliffhanger sting.
+
+**CAMERA:**
+Start: (00:55.50) | End: (00:57.50)
+Close-up on Victor's face draining of colour.
+
+**VICTOR (Shocked, Whispering):**
+Start: (00:57.50) | End: (01:00.00)
+"No... it can't be you."
+
+**CAMERA:**
+Start: (01:00.00) | End: (01:01.50)
+Cut to black.
+
+--- SCRIPT END ---

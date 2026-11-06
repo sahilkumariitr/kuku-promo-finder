@@ -1,0 +1,4 @@
+# Core pipeline (promo_finder/) is standard-library only (Python 3.11+).
+# This file lets Streamlit Community Cloud install the web app.
+streamlit>=1.40
+pandas>=2.0

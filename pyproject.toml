@@ -1,0 +1,27 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "promo-finder"
+version = "0.1.0"
+description = "Find ranked 20-60s promo clips in timestamped microdrama screenplays."
+readme = "README.md"
+requires-python = ">=3.11"
+license = { text = "MIT" }
+authors = [{ name = "Sahil" }]
+dependencies = []            # core pipeline is standard-library only
+
+[project.optional-dependencies]
+app = ["streamlit>=1.40", "pandas>=2.0"]
+dev = ["pytest>=8.0"]
+
+[project.scripts]
+promo-finder = "promo_finder.run:main"
+promo-finder-eval = "promo_finder.evaluate:main"
+
+[tool.setuptools]
+packages = ["promo_finder"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]

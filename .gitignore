@@ -1,0 +1,10 @@
+# Kuku's input pack is confidential: never commit it
+data/
+*.zip
+# local runs
+# outputs quote script lines: share them via the submission Drive folder, not a public repo
+outputs/
+__pycache__/
+.pytest_cache/
+.env
+config.toml

@@ -1,0 +1,23 @@
+# Copy to config.toml and pass with --config config.toml. Every key is optional.
+
+# --- model (any OpenAI-compatible endpoint) ---
+provider = "gemini"          # gemini | groq | openrouter | openai | ollama
+# model = "gemini-2.5-flash" # leave unset for the provider default
+# base_url = "https://my-company-gateway/v1/"   # point at Kuku's own API to swap in a stronger model
+# api_key_env = "MY_KEY_VAR"
+temperature = 0.3
+montages = 5                 # cross-episode promos (0 = off)
+
+# --- promo rules from the brief ---
+min_len = 20.0
+max_len = 60.0
+hook_window = 3.0
+
+# --- ranking ---
+w_hook = 0.40
+w_cliff = 0.35
+w_standalone = 0.25
+w_llm = 0.7                  # how much the LLM's judgement counts vs the rule features
+funnel_bonus = 0.05          # prefer promos from early episodes (viewer lands on ep 1)
+funnel_max_ep = 10
+low_confidence = 0.65
