@@ -3,10 +3,15 @@
 [![CI](https://github.com/sahilkumariitr/kuku-promo-finder/actions/workflows/ci.yml/badge.svg)](https://github.com/sahilkumariitr/kuku-promo-finder/actions/workflows/ci.yml)
 ![Python](https://img.shields.io/badge/python-3.9%2B-blue)
 ![License](https://img.shields.io/badge/license-MIT-green)
+[![Live demo](https://img.shields.io/badge/live%20demo-Streamlit-ff4b4b)](https://kuku-promo-finder-23119038.streamlit.app)
 
 **Promo Finder reads the timestamped screenplays of a vertical microdrama and returns a ranked list of
 ready-to-cut promo clips** for TikTok, Reels and Shorts, with exact segment timestamps, the hook, the
 cliffhanger and a one-line reason for each.
+
+**Live demo:** <https://kuku-promo-finder-23119038.streamlit.app>. Upload a `.zip` of episode screenplays
+(try [`tests/fixtures/synthetic_show`](tests/fixtures/synthetic_show), zipped) and press **Find promos**. The
+rules backend needs no key; the LLM backend takes your own key, used only for that session.
 
 Built for the Kuku AI Generalist assignment (Problem 1: *Find the Promos*). Today an editor watches every
 episode to pick promo moments by hand; this tool produces a shortlist for a whole show in seconds so the
@@ -77,7 +82,8 @@ promo-finder --input path/to/show_folder --out outputs/llm --backend llm
 
 Keys are read from the environment or a git-ignored `.env` file in the working directory.
 
-**3. Use the web app.** Upload a `.zip` of episode screenplays, then inspect each promo next to its script:
+**3. Use the web app** ([hosted version](https://kuku-promo-finder-23119038.streamlit.app)). Upload a `.zip`
+of episode screenplays, then inspect each promo next to its script:
 
 ```bash
 streamlit run app.py
