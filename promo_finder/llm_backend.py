@@ -44,6 +44,11 @@ def _short(err: str, n: int = 300) -> str:
     return ((code.group(0) + ": ") if code and m else "") + msg[:n]
 
 
+# Models often answer "None; it is self-explanatory" instead of leaving the field empty.
+NO_CONTEXT = re.compile(r"^\W*(none|n/?a|nothing|null|no (additional |extra |prior )?(context|backstory)|"
+                        r"not (needed|required|applicable))\b", re.I)
+
+
 def _clamp_score(x) -> int:
     try:
         return max(1, min(5, int(round(float(x)))))
@@ -69,8 +74,8 @@ def _to_promos(data: dict, default_ep: int | None, kind: str, max_items: int) ->
                   why=str(item.get("why", "")), backend="llm", kind=kind,
                   llm_scores={k: _clamp_score(sc.get(k)) for k in ("hook", "cliffhanger", "standalone")},
                   raw=item)
-        nc = str(item.get("needs_context", "")).strip()
-        if nc and nc.lower() not in ("", "none", "n/a", "nothing"):
+        nc = str(item.get("needs_context") or "").strip()
+        if nc and not NO_CONTEXT.match(nc):
             p.flags.append(f"needs_context: {nc}")
         out.append(p)
     return out

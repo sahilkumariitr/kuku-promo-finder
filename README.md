@@ -241,19 +241,30 @@ PROMO_DATA=path/to/show_folder pytest -q
 ## Results on the provided show
 
 The input pack (50 episodes of an English-language show, ~105 minutes, 3,727 timestamped blocks) is
-Kuku's confidential content and is **not** included in this repository. Summary of the rules-backend run:
+Kuku's confidential content and is **not** included in this repository.
 
-| Metric | Value |
-|---|---|
-| Episodes processed | 50 / 50 |
-| Promos found | 141 (1–3 per episode) |
-| Clip length | 22–59 s, all within 20–60 s |
-| Runtime | ~2 s, no API cost |
-| Flagged low-confidence | 16 (quiet, dialogue-only episodes) |
-| LLM-backend budget | ~6 requests per show (5 batches of 10 episodes + 1 montage), ~70k input tokens; fits the Gemini free tier |
+| | Rules backend (no key) | LLM backend (Gemini free tier) |
+|---|---|---|
+| Promos | 141 (1–3 per episode) | 67 single-episode + __MONTAGES__ cross-episode |
+| Episodes covered | 50 / 50 | 50 / 50, no rules fallback needed |
+| Clip length | 20.7–53.5 s | 23.3–59.9 s |
+| Requests and cost | none | 6 requests (5 batches of 10 episodes + 1 montage), ~85k input / ~10k output tokens, $0 |
+| Runtime | ~2 s | ~10 min, mostly pacing and retries while Gemini was overloaded |
+| Flagged for the editor | 19 low-confidence | 14 needs-context, 4 low-confidence |
 
-Manual review of the top picks against the script: most open on a confrontation and cut on an episode's
-own cliffhanger or an unanswered line. The failures found during review are listed below and in
+What the comparison showed:
+
+- **The two backends mostly agree.** The LLM's top pick overlaps a rules pick in 45 of 50 episodes. The
+  differences are story beats the rules undervalued (a fire, the hero revealing himself, an arrest).
+- **The LLM fixes the rules backend's known miss.** A strong confrontation that the rules rank #105 of 141
+  ranks #46 with the LLM, which chose a cut that carries the scene through.
+- **The LLM's own scores are lenient.** 36 of 67 promos rated themselves 5/5/5 or 4/4/4, so on their own
+  they barely order the list; the 30% blend with rule features is what separates them.
+- **Validation matters.** 67 of 68 proposals passed; 2 needed a small trim to fit 60 s.
+- **The fallback chain was needed.** Gemini 3.8 Flash returned HTTP 503 mid-run; 3.6 Flash answered three
+  of the five batches and the montage request needed a further fallback.
+
+Manual review of top picks against the script, and the failures found along the way, are logged in
 [`docs/DESIGN.md`](docs/DESIGN.md#quality-review-log).
 
 ## Limitations
@@ -266,7 +277,10 @@ own cliffhanger or an unanswered line. The failures found during review are list
 - **Quiet episodes still get a pick.** These are flagged `low_confidence` rather than dropped.
 - **Format-dependent rules.** Rule features rely on emotion tags and sound notes; a screenplay without
   them weakens the rules backend (the LLM backend is less affected).
-- **Cross-episode promos require the LLM backend.**
+- **Cross-episode promos require the LLM backend**, and the model may place a later scene before an earlier
+  one as a flashback. File order is not story order, so code cannot enforce chronology; the editor checks it.
+- **LLM self-scores are lenient** (most promos rate 4–5 of 5). Ranking leans on the blend with rule
+  features; a pairwise comparison of the top candidates would discriminate better.
 - **Screenplay time is assumed to equal final-cut time.** If the edit drifts, timestamps need an offset.
 
 ## Project structure

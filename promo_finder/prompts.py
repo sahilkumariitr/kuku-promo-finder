@@ -30,7 +30,7 @@ Return JSON only:
   "hook": "what happens in the first 3 seconds (quote the line)",
   "cliffhanger": "the unresolved moment it cuts on (quote the line)",
   "why": "one line on why it works for a new viewer",
-  "needs_context": "what a stranger would NOT understand, or empty",
+  "needs_context": "what a stranger would NOT understand, or an empty string if nothing",
   "scores": {"hook": 1-5, "cliffhanger": 1-5, "standalone": 1-5}
 }]}"""
 
@@ -74,7 +74,8 @@ Return JSON only:
 {"promos": [{
   "segments": [{"episode": N, "start": "MM:SS.ss", "end": "MM:SS.ss"}],
   "hook": "...", "cliffhanger": "...", "why": "one line",
-  "needs_context": "...", "scores": {"hook": 1-5, "cliffhanger": 1-5, "standalone": 1-5}
+  "needs_context": "what a stranger would NOT understand, or an empty string if nothing",
+  "scores": {"hook": 1-5, "cliffhanger": 1-5, "standalone": 1-5}
 }]}"""
 
 MONTAGE_USER = """SHOW: {show}

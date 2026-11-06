@@ -67,6 +67,15 @@ def test_rules_backend_respects_brief(eps):
     assert [p.rank for p in promos] == list(range(1, len(promos) + 1))
 
 
+def test_needs_context_ignores_empty_answers():
+    from promo_finder.llm_backend import _to_promos
+    item = lambda nc: {"episode": 1, "segments": [{"start": "00:00.00", "end": "00:30.00"}], "needs_context": nc}
+    flagged = lambda nc: any(f.startswith("needs_context") for f in _to_promos({"promos": [item(nc)]}, 1, "single", 5)[0].flags)
+    for empty in ["", None, "None", "None; the betrayal is self-explanatory.", "N/A", "No additional context needed"]:
+        assert not flagged(empty), empty
+    assert flagged("Rupert is Alexander's cousin who stole his title.")
+
+
 def _free_port():
     with socket.socket() as sock:
         sock.bind(("127.0.0.1", 0))
