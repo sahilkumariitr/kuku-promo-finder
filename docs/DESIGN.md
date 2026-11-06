@@ -71,11 +71,16 @@ code, surrounding prose). Retries use exponential backoff for rate limits.
 | | Per show (50 episodes) |
 |---|---|
 | Transcript tokens (camera directions dropped) | ~48k |
-| Total input incl. prompts | ~80k |
+| Total input incl. prompts | ~60-70k |
 | Output | ~25k |
-| Calls | 50 episode calls + 1 montage call (+ repairs) |
+| Requests | 5 batches of 10 episodes + 1 montage request (+ a repair only if an episode is left uncovered) |
 | Cost | free tier on Gemini Flash; a few cents at paid flash-class prices |
 | Rules backend | ~2 s, no cost |
+
+Free tiers cap requests per day (Gemini 3.8 Flash: 20), so episodes are batched 10 per request, requests
+are paced to the per-minute limit, successful requests are cached by prompt hash (an interrupted run resumes
+for free), and overloaded or exhausted models fall back to the next model in the chain. On a paid tier the
+batch size can drop to 1-3 episodes for slightly sharper attention per episode.
 
 Episodes are independent, so a weekly slate of shows parallelises trivially. At real volume:
 
@@ -107,3 +112,5 @@ quoted because the content is confidential.
 | 5 | Quiet, dialogue-only episodes still produce a pick | one promo per episode is always kept | flagged `low_confidence` (16 of 141) instead of dropped |
 | 6 | Local endpoints on `127.0.0.1` were asked for an API key | the key check only recognised `localhost` | fixed; covered by the end-to-end test |
 | 7 | First real Gemini run produced 0 promos | the default model (`gemini-2.5-flash`) had been retired for new API keys (HTTP 404), and the tool kept calling it for every episode while only saying "see raw log" | default moved to `gemini-3.8-flash`; fatal errors (bad key, no access, unknown model) now stop the run after one call and print the provider's message; regression test added |
+| 8 | Second real run: HTTP 503 "high demand", and the free tier allows only 20 requests/day at 5/minute, while the design needed 51+ requests per show | one request per episode; no pacing, no resume, no fallback model | episodes batched 10 per request (~6 requests per show); 13 s pacing; prompt-hash cache so reruns resume; fallback chain 3.8 Flash → 3.6 Flash → 3.5 Flash-Lite; repairs only when an episode would be left uncovered; tests for fallback, resume and daily-quota stop |
+| 9 | Repair requests could not actually fix timestamps | the repair prompt sent the validator errors and the previous answer, but not the transcript | the repair now re-sends the original request (transcript included); covered by a test |

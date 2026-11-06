@@ -21,6 +21,19 @@ PROVIDERS = {
     "ollama": ("http://localhost:11434/v1/", "qwen2.5:7b", ""),
 }
 
+# Tried in order when the main model is overloaded, retired or out of daily quota.
+# On Gemini's free tier each model has its own quota (3.8/3.6 Flash: 5 RPM, 20 requests/day;
+# 3.5 Flash-Lite: 500/day), so the chain also stretches what one free key can do.
+FALLBACKS = {
+    "gemini": ["gemini-3.6-flash", "gemini-3.5-flash-lite"],
+}
+# Seconds between requests, to stay under the provider's free-tier requests-per-minute.
+PACING = {
+    "gemini": 13.0,   # 5 RPM
+    "groq": 2.5,      # 30 RPM
+    "openrouter": 3.5,
+}
+
 
 @dataclass
 class Config:
@@ -53,6 +66,13 @@ class Config:
     temperature: float = 0.3
     include_camera: bool = False
     max_retries: int = 4
+    overload_retries: int = 2     # retries per model on HTTP 5xx before falling back
+    retry_base: float = 10.0      # seconds; backoff = retry_base * attempt
+    episodes_per_call: int = 10   # batch episodes into one request (free tiers cap requests/day)
+    min_interval: float = -1.0    # seconds between requests; -1 = provider default (PACING)
+    fallback_models: list = field(default_factory=lambda: ["auto"])  # ["auto"] = provider default
+    rules_fallback: bool = True   # episodes the LLM fails on get the rules backend's best pick
+    cache: bool = True            # reuse identical successful requests (resume after a stop)
     repair_rounds: int = 1
     montages: int = 5             # cross-episode promos to request (0 = off)
     pool_per_episode: int = 3
@@ -66,6 +86,23 @@ class Config:
         key_env = self.api_key_env or key_env
         key = os.environ.get("LLM_API_KEY") or (os.environ.get(key_env, "") if key_env else "")
         return base, model, key
+
+    def llm_models(self) -> list[str]:
+        _, model, _ = self.llm_settings()
+        env = os.environ.get("LLM_FALLBACK_MODELS")
+        if env is not None:
+            fb = [m.strip() for m in env.split(",") if m.strip()]
+        elif self.fallback_models == ["auto"]:
+            fb = FALLBACKS.get(self.provider, [])
+        else:
+            fb = list(self.fallback_models)
+        return [model] + [m for m in fb if m != model]
+
+    def pacing(self) -> float:
+        env = os.environ.get("LLM_MIN_INTERVAL")
+        if env is not None:
+            return float(env)
+        return self.min_interval if self.min_interval >= 0 else PACING.get(self.provider, 0.0)
 
 
 def load_config(path: str | None = None, **overrides) -> Config:
@@ -81,6 +118,8 @@ def load_config(path: str | None = None, **overrides) -> Config:
                 setattr(cfg, k, v)
     if os.environ.get("LLM_PROVIDER"):
         cfg.provider = os.environ["LLM_PROVIDER"]
+    if os.environ.get("LLM_RETRY_BASE"):
+        cfg.retry_base = float(os.environ["LLM_RETRY_BASE"])
     for k, v in overrides.items():
         if v is not None:
             setattr(cfg, k, v)

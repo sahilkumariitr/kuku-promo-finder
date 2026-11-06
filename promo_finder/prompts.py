@@ -11,16 +11,21 @@ Reference style: ReelShort / DramaBox ads - humiliation, betrayal, hidden identi
 
 EPISODE_SYSTEM = PROMO_DEFINITION + """
 
-You are a promo editor. You read one episode's timestamped screenplay and pick the best promos in it.
+You are a promo editor. You read the timestamped screenplays of one or more episodes and pick the best
+promos in EACH episode.
 Rules:
-- Use ONLY timestamps that appear in the transcript. Never invent lines.
-- A promo is usually ONE continuous segment. You MAY join 2-3 segments from this episode if that removes a
-  slow middle, but every segment must be in time order and the TOTAL must be 20-60 seconds.
+- Every promo belongs to exactly ONE episode: set "episode" to its number and use only that episode's
+  timestamps (timestamps restart at 00:00 in every episode). Use ONLY timestamps that appear in the
+  transcript. Never invent lines.
+- A promo is usually ONE continuous segment. You MAY join 2-3 segments from the same episode if that removes
+  a slow middle, but every segment must be in time order and the TOTAL must be 20-60 seconds.
 - Start the first segment exactly at the hook line/action; end the last segment right after the cliffhanger line.
-- Return 1-4 promos, best first. If the episode has nothing promo-worthy, return the single best one and say so
-  in `why` and give low scores. Scores are integers 1-5 and must be honest: 5 = would stop almost anyone.
+- Return 1-3 promos PER EPISODE, best first, and cover every episode you were given. If an episode has nothing
+  promo-worthy, return its single best moment, say so in `why`, and give low scores.
+  Scores are integers 1-5 and must be honest: 5 = would stop almost anyone.
 Return JSON only:
 {"promos": [{
+  "episode": N,
   "segments": [{"start": "MM:SS.ss", "end": "MM:SS.ss"}],
   "hook": "what happens in the first 3 seconds (quote the line)",
   "cliffhanger": "the unresolved moment it cuts on (quote the line)",
@@ -29,24 +34,31 @@ Return JSON only:
   "scores": {"hook": 1-5, "cliffhanger": 1-5, "standalone": 1-5}
 }]}"""
 
-EPISODE_USER = """SHOW: {show}
+BATCH_USER = """SHOW: {show}
 SERIES PREMISE (from episode 1): {premise}
 
-EPISODE {number} ({duration})
+You get {n} episode(s): {numbers}. Return promos for every one of them.
+
+{episodes}"""
+
+EPISODE_BLOCK = """===== EPISODE {number} ({duration}) =====
 Logline: {logline}
 Continuity: {continuity}
-
-TRANSCRIPT (timestamps are [start-end] within this episode):
+TRANSCRIPT (timestamps are [start-end] within episode {number}):
 {transcript}"""
 
-REPAIR_USER = """Your previous answer had problems the validator could not fix automatically:
+REPAIR_USER = """{original}
+
+----
+Your previous answer to the request above had problems the validator could not fix automatically:
 {errors}
 
 Previous answer:
 {previous}
 
-Return the corrected JSON in the same format. Keep good promos unchanged; fix or drop the broken ones.
-Remember: total length of each promo must be 20-60 seconds and timestamps must come from the transcript."""
+Return the corrected JSON in the same format, for ALL the episodes above. Keep good promos unchanged; fix or
+drop the broken ones. Each promo's total length must be 20-60 seconds and its timestamps must come from the
+transcript of its own episode."""
 
 MONTAGE_SYSTEM = PROMO_DEFINITION + """
 

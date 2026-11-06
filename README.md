@@ -27,6 +27,7 @@ A promo, as defined in the brief, is a 20–60 s clip that:
 - [How it works](#how-it-works)
 - [Output](#output)
 - [Configuration and model swapping](#configuration-and-model-swapping)
+- [Free tiers and rate limits](#free-tiers-and-rate-limits)
 - [Evaluating quality](#evaluating-quality)
 - [Results on the provided show](#results-on-the-provided-show)
 - [Limitations](#limitations)
@@ -40,6 +41,9 @@ A promo, as defined in the brief, is a 20–60 s clip that:
 - **Never trusts the model's timestamps.** Every proposal is validated in code: cuts snap to shot
   boundaries, never land mid-line, stay within 20–60 s, and must put a line or action in the first 3 s.
   Invalid proposals go back to the model once with the exact errors.
+- **Runs a whole show on a free tier.** Episodes are batched 10 per request (~6 requests per show), requests
+  are paced to the provider's per-minute limit, finished requests are cached so an interrupted run resumes
+  for free, and an overloaded or exhausted model hands over to a fallback model.
 - **Works without an API key.** A deterministic rules backend scores every shot-aligned window. It is
   the free fallback and the baseline the LLM has to beat.
 - **Cross-episode promos.** The LLM can join moments from different episodes into one clip.
@@ -197,6 +201,24 @@ Ranking weights, length limits, the early-episode bonus and the LLM/rules blend 
 [`config.example.toml`](config.example.toml). Prompts live in
 [`promo_finder/prompts.py`](promo_finder/prompts.py) so they can be versioned separately from code.
 
+## Free tiers and rate limits
+
+Free API tiers limit *requests*, not tokens. Gemini's free tier, for example, allows Gemini 3.8 Flash
+5 requests per minute and 20 per day. One request per episode would need 51+ requests for a 50-episode
+show, so the backend is built around the request budget:
+
+| Mechanism | Setting | Effect |
+|---|---|---|
+| Batching | `episodes_per_call = 10` | a 50-episode show is 5 requests + 1 montage request (~12k input tokens each) |
+| Pacing | `min_interval` (Gemini default 13 s) | stays under 5 requests/minute; per-minute 429s wait for the provider's `retryDelay` |
+| Fallback chain | `fallback_models` (Gemini: 3.6 Flash → 3.5 Flash-Lite) | an overloaded (5xx), retired (404) or out-of-quota (daily 429) model hands over to the next; each has its own quota |
+| Cache | `cache = true` | successful requests are stored by prompt hash in `<out>/cache/`; rerunning the same command after a stop reuses them and only sends what is missing |
+| Frugal repair | automatic | a repair request is sent only if invalid proposals would leave an episode with no promo; stray bad promos are dropped |
+| Rules fallback | `rules_fallback = true` | an episode with no valid LLM promo gets the rules backend's best pick, flagged |
+| Fail fast | automatic | bad key, retired model or exhausted daily quota stops the run after one request with the provider's message |
+
+The console and `report.md` show requests sent, requests served from cache, and which model answered.
+
 ## Evaluating quality
 
 Label the promos you would cut yourself in a few episodes (`episode,start,end,note`; see
@@ -228,7 +250,7 @@ Kuku's confidential content and is **not** included in this repository. Summary 
 | Clip length | 22–59 s, all within 20–60 s |
 | Runtime | ~2 s, no API cost |
 | Flagged low-confidence | 16 (quiet, dialogue-only episodes) |
-| Estimated LLM-backend cost | ~80k input / ~25k output tokens per show, 51 calls (fits the Gemini free tier) |
+| LLM-backend budget | ~6 requests per show (5 batches of 10 episodes + 1 montage), ~70k input tokens; fits the Gemini free tier |
 
 Manual review of the top picks against the script: most open on a confrontation and cut on an episode's
 own cliffhanger or an unanswered line. The failures found during review are listed below and in

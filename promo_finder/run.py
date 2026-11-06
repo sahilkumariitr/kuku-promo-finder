@@ -33,8 +33,18 @@ def write_outputs(promos, out: Path, meta: dict):
 
     lines = [f"# Promos — {meta['show']}", "",
              f"Backend: **{meta['backend']}**" + (f" (model `{meta.get('model')}`)" if meta.get("model") else "")
-             + f" · {meta['episodes']} episodes · {len(promos)} promos · generated {meta['generated']}", "",
-             "## Post first (top 10)", ""]
+             + f" · {meta['episodes']} episodes · {len(promos)} promos · generated {meta['generated']}", ""]
+    if meta.get("backend") == "llm":
+        used = ", ".join(f"{m} ×{n}" for m, n in (meta.get("models_used") or {}).items()) or "none"  # incl. cache
+        lines += [f"Requests: {meta.get('http_requests', 0)} sent, {meta.get('cache_hits', 0)} from cache · "
+                  f"answered by: {used}", ""]
+        if meta.get("rules_fallback_episodes"):
+            lines += [f"Rules-backend fallback used for episodes: "
+                      f"{', '.join(map(str, meta['rules_fallback_episodes']))}", ""]
+        if meta.get("incomplete"):
+            lines += [f"> **Incomplete run:** {meta['incomplete'].splitlines()[0]}  ", 
+                      "> Rerun the same command later; finished requests are reused from cache.", ""]
+    lines += ["## Post first (top 10)", ""]
     for p in promos[:10]:
         segs = " + ".join(f"Ep {s.episode} {fmt(s.start)}–{fmt(s.end)}" for s in p.segments)
         lines += [f"### {p.rank}. {segs} ({p.duration:.0f}s, score {p.score:.3f})",
@@ -107,6 +117,9 @@ def main(argv=None):
     meta["seconds"] = round(time.time() - t0, 1)
     write_outputs(ranked, out, meta)
     print(f"{len(ranked)} promos -> {out}/promos.json, promos.csv, report.md ({meta['seconds']}s)")
+    if a.backend == "llm":
+        print(f"requests sent: {meta.get('http_requests', 0)} · from cache: {meta.get('cache_hits', 0)} · "
+              f"models: {meta.get('models_used')}")
 
 
 if __name__ == "__main__":

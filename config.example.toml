@@ -7,6 +7,11 @@ provider = "gemini"          # gemini | groq | openrouter | openai | ollama
 # api_key_env = "MY_KEY_VAR"
 temperature = 0.3
 montages = 5                 # cross-episode promos (0 = off)
+episodes_per_call = 10       # free tiers cap requests/day: batch episodes into one request
+# min_interval = 13.0        # seconds between requests; default comes from the provider (Gemini free: 13)
+# fallback_models = ["gemini-3.6-flash", "gemini-3.5-flash-lite"]   # tried when the main model fails
+cache = true                 # reuse finished requests when a run is repeated (resume after a stop)
+rules_fallback = true        # episodes the LLM fails on get the rules backend's best pick
 
 # --- promo rules from the brief ---
 min_len = 20.0

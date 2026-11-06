@@ -61,45 +61,71 @@ def test_rules_backend_respects_brief(eps):
 
 
 def _free_port():
-    with socket.socket() as s:
-        s.bind(("127.0.0.1", 0))
-        return s.getsockname()[1]
+    with socket.socket() as sock:
+        sock.bind(("127.0.0.1", 0))
+        return sock.getsockname()[1]
 
 
-def test_llm_backend_end_to_end(tmp_path):
-    """Full LLM path (proposal -> validation -> repair -> montage -> ranking) against a local fake API."""
+@pytest.fixture(scope="module")
+def fake_api():
     port = _free_port()
     srv = subprocess.Popen([sys.executable, str(ROOT / "tests" / "fake_llm_server.py"), str(port)])
-    try:
-        time.sleep(0.8)
-        env = {**os.environ, "LLM_BASE_URL": f"http://127.0.0.1:{port}/v1/", "LLM_MODEL": "fake"}
-        out = tmp_path / "out"
-        subprocess.run([sys.executable, "-m", "promo_finder.run", "--input", DATA, "--out", str(out),
-                        "--backend", "llm", "--provider", "ollama"], check=True, env=env, cwd=ROOT)
-        data = json.loads((out / "promos.json").read_text())
-        promos = data["promos"]
-        assert promos and all(20 <= p["duration"] <= 60.5 for p in promos)
-        assert any(p["kind"] == "montage" for p in promos)
-        raw = list((out / "raw_llm").glob("ep_*.json"))
-        assert raw and all(len(f.read_text().splitlines()) == 2 for f in raw)  # proposal + 1 repair round
-    finally:
-        srv.terminate()
+    time.sleep(0.8)
+    yield f"http://127.0.0.1:{port}/v1/"
+    srv.terminate()
 
 
-def test_llm_backend_stops_on_fatal_error(tmp_path):
-    """A retired model / bad key must stop the run after one call with a readable reason, not burn 50 calls."""
-    port = _free_port()
-    srv = subprocess.Popen([sys.executable, str(ROOT / "tests" / "fake_llm_server.py"), str(port)])
-    try:
-        time.sleep(0.8)
-        env = {**os.environ, "LLM_BASE_URL": f"http://127.0.0.1:{port}/v1/", "LLM_MODEL": "retired"}
-        out = tmp_path / "out"
-        r = subprocess.run([sys.executable, "-m", "promo_finder.run", "--input", DATA, "--out", str(out),
-                            "--backend", "llm", "--provider", "ollama"], env=env, cwd=ROOT,
-                           capture_output=True, text=True)
-        assert r.returncode != 0
-        assert "no longer available" in r.stderr
-        logs = list((out / "raw_llm").glob("*.json"))
-        assert len(logs) == 1 and len(logs[0].read_text().splitlines()) == 1  # exactly one call made
-    finally:
-        srv.terminate()
+def _run_llm(fake_api, out, model="fake", **env_extra):
+    env = {**os.environ, "LLM_BASE_URL": fake_api, "LLM_MODEL": model, "LLM_MIN_INTERVAL": "0",
+           "LLM_RETRY_BASE": "0", **env_extra}
+    if "LLM_FALLBACK_MODELS" not in env_extra:
+        env.pop("LLM_FALLBACK_MODELS", None)
+    return subprocess.run([sys.executable, "-m", "promo_finder.run", "--input", DATA, "--out", str(out),
+                           "--backend", "llm", "--provider", "ollama"], env=env, cwd=ROOT,
+                          capture_output=True, text=True)
+
+
+def test_llm_backend_end_to_end(fake_api, tmp_path):
+    """Batched proposal -> validation -> repair (with transcript) -> montage -> ranking."""
+    r = _run_llm(fake_api, tmp_path / "out")
+    assert r.returncode == 0, r.stderr
+    data = json.loads((tmp_path / "out" / "promos.json").read_text())
+    promos, meta = data["promos"], data["meta"]
+    assert promos and all(20 <= p["duration"] <= 60.5 for p in promos)
+    assert any(p["kind"] == "montage" for p in promos)
+    assert not meta["rules_fallback_episodes"]
+    raw = sorted((tmp_path / "out" / "raw_llm").glob("ep_*.json"))
+    n_eps = len(load_show(DATA))
+    assert len(raw) == -(-n_eps // 10)  # episodes are batched 10 per request
+    lines = [json.loads(l) for l in raw[0].read_text().splitlines()]
+    assert len(lines) == 2 and "TRANSCRIPT" in lines[1]["user"]  # repair re-sends the transcript
+
+
+def test_llm_backend_resumes_from_cache(fake_api, tmp_path):
+    out = tmp_path / "out"
+    assert _run_llm(fake_api, out).returncode == 0
+    first = json.loads((out / "promos.json").read_text())
+    r = _run_llm(fake_api, out)
+    assert r.returncode == 0, r.stderr
+    second = json.loads((out / "promos.json").read_text())
+    assert second["meta"]["http_requests"] == 0 and second["meta"]["cache_hits"] > 0
+    strip = lambda d: [(p["segments"], p["score"]) for p in d["promos"]]
+    assert strip(first) == strip(second)
+
+
+def test_llm_backend_falls_back_when_model_is_busy(fake_api, tmp_path):
+    r = _run_llm(fake_api, tmp_path / "out", model="busy", LLM_FALLBACK_MODELS="fake")
+    assert r.returncode == 0, r.stderr
+    meta = json.loads((tmp_path / "out" / "promos.json").read_text())["meta"]
+    assert meta["models_used"] == {"fake": meta["calls"]} and "busy" not in meta["live_requests_by_model"]
+    assert "falling back to fake" in r.stdout
+
+
+@pytest.mark.parametrize("model,needle", [("retired", "no longer available"), ("noquota", "quota")])
+def test_llm_backend_stops_on_fatal_error(fake_api, tmp_path, model, needle):
+    """Retired model / exhausted daily quota: stop after one request with a readable reason."""
+    r = _run_llm(fake_api, tmp_path / "out", model=model)
+    assert r.returncode != 0
+    assert needle in r.stderr.lower()
+    logs = list((tmp_path / "out" / "raw_llm").glob("*.json"))
+    assert len(logs) == 1 and len(logs[0].read_text().splitlines()) == 1
