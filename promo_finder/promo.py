@@ -93,6 +93,17 @@ def snap_end(ep: Episode, t: float, max_fwd: float = 3.0) -> float:
     return min(e, ep.duration)
 
 
+def snap_end_inward(ep: Episode, t: float, floor: float) -> float:
+    """Latest clean cut at or before t (shot end, never inside a spoken line); used to trim overlong promos."""
+    dialogue = [b for b in ep.beats if b.kind == "DIALOGUE"]
+    clean = lambda e: not any(b.start < e - 0.05 < b.end - 0.05 for b in dialogue)
+    shots = [b.end for b in ep.shots if floor < b.end <= t + 0.05 and clean(b.end)]
+    if shots:
+        return max(shots)
+    lines = [b.end for b in dialogue if floor < b.end <= t + 0.05]
+    return max(lines) if lines else t
+
+
 # ---------- rule scoring ----------
 
 def describe_beat(b) -> str:
@@ -145,6 +156,7 @@ def validate(promo: Promo, eps: dict[int, Episode], cfg) -> list[str]:
     errors = []
     if not promo.segments:
         return ["no segments"]
+    requested = sum(max(s.end - s.start, 0.0) for s in promo.segments)  # what the proposer asked for
     fixed = []
     for i, s in enumerate(promo.segments):
         ep = eps.get(s.episode)
@@ -167,13 +179,22 @@ def validate(promo: Promo, eps: dict[int, Episode], cfg) -> list[str]:
             errors.append(f"segment in ep {s.episode} at {fmt(s.start)} overlaps an earlier segment")
             continue
         clean.append(s)
+    if clean and sum(s.length for s in clean) > cfg.max_len and requested <= cfg.max_len + cfg.trim_tolerance:
+        # small overshoot (from snapping, or a model landing at 60.8s): trim back to the latest clean cut.
+        # Bigger overshoots are rejected: trimming them would silently cut the cliffhanger the model chose.
+        last, ep = clean[-1], eps[clean[-1].episode]
+        excess = sum(s.length for s in clean) - cfg.max_len
+        e2 = snap_end_inward(ep, last.end - excess, floor=last.start + 1.5)
+        if last.start + 1.5 <= e2 < last.end:
+            clean[-1] = Segment(last.episode, last.start, e2)
+            promo.flags.append("trimmed: end pulled in to fit 60s")
     promo.segments = clean
     if not clean:
         return errors or ["no valid segments"]
     d = promo.duration
-    if d < cfg.min_len - 0.5:
+    if d < cfg.min_len - 0.01:
         errors.append(f"total length {d:.1f}s is under {cfg.min_len:.0f}s")
-    if d > cfg.max_len + 0.5:
+    if d > cfg.max_len + 0.01:
         errors.append(f"total length {d:.1f}s is over {cfg.max_len:.0f}s")
     first = clean[0]
     h, _ = F.hook_score(eps[first.episode], first.start, cfg.hook_window)

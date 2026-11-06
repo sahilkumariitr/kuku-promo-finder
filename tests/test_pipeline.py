@@ -48,6 +48,12 @@ def test_validator_snaps_and_rejects(eps):
     assert not any(b.start < seg.end - 0.05 < b.end - 0.05 for b in dialogue)  # never cut mid-line
     assert any("over" in err for err in validate(Promo([Segment(e.number, 0.0, 90.0)]), {e.number: e}, cfg))
     assert validate(Promo([Segment(999, 0.0, 30.0)]), {e.number: e}, cfg)
+    # a proposal that lands just over 60 s is trimmed back to a clean cut; a 90 s one (above) is rejected
+    start = e.shots[0].start
+    over = Promo([Segment(e.number, start, start + 60.6)])
+    if start + 60.6 <= e.duration:
+        assert validate(over, {e.number: e}, cfg) == []
+        assert over.duration <= cfg.max_len and any(f.startswith("trimmed") for f in over.flags)
 
 
 def test_rules_backend_respects_brief(eps):
@@ -55,7 +61,8 @@ def test_rules_backend_respects_brief(eps):
     promos = rank(rules_backend.run(eps, cfg, log=lambda *a: None), cfg)
     assert promos
     for p in promos:
-        assert cfg.min_len - 0.5 <= p.duration <= cfg.max_len + 0.5
+        assert cfg.min_len <= p.duration <= cfg.max_len  # strict: the brief says 20-60 s
+        assert 0.0 <= p.score <= 1.0
         assert p.hook and p.cliffhanger and p.why
     assert [p.rank for p in promos] == list(range(1, len(promos) + 1))
 
@@ -91,7 +98,7 @@ def test_llm_backend_end_to_end(fake_api, tmp_path):
     assert r.returncode == 0, r.stderr
     data = json.loads((tmp_path / "out" / "promos.json").read_text())
     promos, meta = data["promos"], data["meta"]
-    assert promos and all(20 <= p["duration"] <= 60.5 for p in promos)
+    assert promos and all(20 <= p["duration"] <= 60 for p in promos)
     assert any(p["kind"] == "montage" for p in promos)
     assert not meta["rules_fallback_episodes"]
     raw = sorted((tmp_path / "out" / "raw_llm").glob("ep_*.json"))

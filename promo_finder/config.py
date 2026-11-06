@@ -41,6 +41,7 @@ class Config:
     min_len: float = 20.0
     max_len: float = 60.0
     hook_window: float = 3.0
+    trim_tolerance: float = 3.0   # overshoot (s) the validator may trim back to 60s; more is rejected
 
     # candidate search (rules backend)
     per_episode: int = 3          # promos kept per episode

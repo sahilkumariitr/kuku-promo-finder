@@ -15,11 +15,11 @@ def base_score(p: Promo, cfg) -> float:
     else:
         s = rule
     s *= r.get("duration_fit", 1.0)
-    if min(p.episodes) <= cfg.funnel_max_ep:
-        s += cfg.funnel_bonus
+    # early-episode bonus as a blend, so the final score stays in 0..1
+    s = s * (1 - cfg.funnel_bonus) + (cfg.funnel_bonus if min(p.episodes) <= cfg.funnel_max_ep else 0.0)
     if any(f.startswith("weak_open") for f in p.flags):
         s -= 0.15
-    return round(s, 4)
+    return round(max(s, 0.0), 4)
 
 
 def rank(promos: list[Promo], cfg) -> list[Promo]:
