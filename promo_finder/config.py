@@ -77,6 +77,9 @@ class Config:
     repair_rounds: int = 1
     montages: int = 5             # cross-episode promos to request (0 = off)
     pool_per_episode: int = 3
+    montage_shared_cast: bool = True  # every cut in a montage must keep a named character from the last segment
+    cold_read: bool = True        # one extra request: a reader with no show context rates each montage's clarity
+    cold_read_min: int = 3        # montages the cold reader rates below this (1-5) are dropped; 1 = flag only
 
     extra: dict = field(default_factory=dict)
 

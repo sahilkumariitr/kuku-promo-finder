@@ -7,6 +7,9 @@ provider = "gemini"          # gemini | groq | openrouter | openai | ollama
 # api_key_env = "MY_KEY_VAR"
 temperature = 0.3
 montages = 5                 # cross-episode promos (0 = off)
+montage_shared_cast = true   # every cut in a montage must keep a named character from the previous segment
+cold_read = true             # +1 request: a reader with no show context rates whether each montage is followable
+cold_read_min = 3            # montages it rates below this (1-5) are dropped; 1 = flag only, never drop
 episodes_per_call = 10       # free tiers cap requests/day: batch episodes into one request
 # min_interval = 13.0        # seconds between requests; default comes from the provider (Gemini free: 13)
 # fallback_models = ["gemini-3.6-flash", "gemini-3.5-flash-lite"]   # tried when the main model fails

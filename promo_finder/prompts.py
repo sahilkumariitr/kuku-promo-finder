@@ -68,12 +68,16 @@ You get every episode's logline and a pool of strong single-episode moments with
 Rules:
 - Use only segments inside the time ranges listed in the pool (you may trim them shorter).
 - Episode file order may not equal story order: rely on loglines, and order segments so the story makes sense.
+- A stranger follows a jump between episodes by recognising a face. Every cut must keep at least one named
+  character from the previous segment on screen (see each moment's characters), and the later moment must
+  follow from the earlier one (cause and consequence, wrong and payback), not just share a mood.
 - The first segment must open on a hook; the last must end on an unresolved moment. Total 20-60 seconds.
 - Do not spoil the show's biggest payoff in a way that removes the reason to watch.
 Return JSON only:
 {"promos": [{
   "segments": [{"episode": N, "start": "MM:SS.ss", "end": "MM:SS.ss"}],
   "hook": "...", "cliffhanger": "...", "why": "one line",
+  "link": "one sentence: which character carries the viewer across each cut and how the later moment follows from the earlier one",
   "needs_context": "what a stranger would NOT understand, or an empty string if nothing",
   "scores": {"hook": 1-5, "cliffhanger": 1-5, "standalone": 1-5}
 }]}"""
@@ -83,7 +87,29 @@ MONTAGE_USER = """SHOW: {show}
 EPISODE LOGLINES:
 {loglines}
 
-POOL OF STRONG MOMENTS (id | episode | range | hook | cliffhanger):
+POOL OF STRONG MOMENTS (id | episode | range | characters on screen | hook | cliffhanger):
 {pool}
 
 Return the {n} best cross-episode promos."""
+
+COLD_READ_SYSTEM = """You have never seen this show and know nothing about it. Each clip below is a short promo
+exactly as a scrolling viewer would get it: the shots, actions and lines in playback order. "--- CUT ---"
+marks a jump to a different scene, possibly much later in the story. Character labels stand in for the faces
+a viewer would recognise.
+For each clip, using ONLY what is in the clip:
+- "who": in one sentence, who is wronging whom (or who is in conflict) and what is at stake.
+- "unresolved": what question the clip leaves hanging.
+- "confusing": anything a stranger could not follow: an unexplained person or reference, a cut that does not
+  connect, or a later scene that seems to come before its cause. Empty string if nothing.
+- "score": 1-5, how easily a stranger follows the clip. 5 = instantly clear who is who and why the second
+  scene follows the first; 3 = followable with a small gap; 1 = cannot tell what connects the scenes.
+  Be strict: you are the only check before this clip is posted.
+Return JSON only:
+{"reads": [{"id": "C1", "who": "...", "unresolved": "...", "confusing": "...", "score": 1-5}]}"""
+
+COLD_READ_USER = """{n} clip(s):
+
+{clips}"""
+
+COLD_READ_CLIP = """===== {id} =====
+{script}"""

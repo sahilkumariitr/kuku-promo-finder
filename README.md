@@ -51,7 +51,9 @@ A promo, as defined in the brief, is a 20–60 s clip that:
   for free, and an overloaded or exhausted model hands over to a fallback model.
 - **Works without an API key.** A deterministic rules backend scores every shot-aligned window. It is
   the free fallback and the baseline the LLM has to beat.
-- **Cross-episode promos.** The LLM can join moments from different episodes into one clip.
+- **Cross-episode promos a stranger can follow.** The LLM can join moments from different episodes into one
+  clip. Code requires a named character to carry over at every cut, and a second, context-free "cold read"
+  checks that someone who has never seen the show can follow it.
 - **Auditable.** Every prompt and unedited model response is saved to `raw_llm/`.
 - **Zero runtime dependencies.** The pipeline is pure Python standard library; Streamlit is optional.
 - **Measurable.** A built-in evaluator compares output to an editor's own picks (recall and precision).
@@ -130,10 +132,11 @@ flowchart LR
     D --> F[Validate and snap<br/><i>code</i>]
     F -->|errors| G[Repair once<br/><i>LLM</i>]
     G --> F
-    F --> H[Cross-episode montages<br/><i>LLM</i>]
+    F --> H[Cross-episode montages<br/><i>LLM + shared-cast check</i>]
     F -.->|no valid promo:<br/>rules fallback| E
+    H --> L[Cold read: can a stranger<br/>follow it?<br/><i>LLM</i>]
     E --> I[Score and rank<br/><i>code</i>]
-    H --> I
+    L --> I
     I --> J[promos.json / .csv / report.md]
     J --> K[Editor review<br/><i>human</i>]
 ```
@@ -144,6 +147,8 @@ flowchart LR
 | Propose promos with hook, cliffhanger, reason and 1–5 scores | LLM | "would a stranger stop scrolling and follow this?" needs language understanding |
 | Snap to shot boundaries, forbid mid-line cuts, enforce 20–60 s, check the first 3 s, reject non-existent timestamps | code | models invent or fudge timestamps; rules are cheap and certain |
 | Fix rejected proposals | LLM, one round | validator errors are sent back verbatim |
+| Cross-episode promos: every cut keeps a named character from the previous segment | code | a stranger follows a jump between episodes by recognising a face; background roles (guards, guests) don't count |
+| Cross-episode promos: cold read with no show context, clarity 1–5 | LLM, 1 request | judges only what the clip shows, so its score replaces the proposer's lenient self-score; unclear montages are dropped |
 | Rule features: emotion-tag intensity, physical action, reveal words, music stings, episode-end cliffhangers, mid-conversation openings | code | a second opinion blended into the score, so one odd LLM answer cannot top the list |
 | Posting order | code | score, plus a small bonus for early episodes and a diversity penalty so neighbouring posts come from different scenes |
 | Final selection | human | the tool shortlists ~3 per episode and flags low-confidence picks |
@@ -218,7 +223,7 @@ show, so the backend is built around the request budget:
 
 | Mechanism | Setting | Effect |
 |---|---|---|
-| Batching | `episodes_per_call = 10` | a 50-episode show is 5 requests + 1 montage request (~12k input tokens each) |
+| Batching | `episodes_per_call = 10` | a 50-episode show is 5 requests (~12k input tokens each) + 1 montage request + 1 small cold-read request |
 | Pacing | `min_interval` (Gemini default 13 s) | stays under 5 requests/minute; per-minute 429s wait for the provider's `retryDelay` |
 | Fallback chain | `fallback_models` (Gemini: 3.6 Flash → 3.5 Flash-Lite) | an overloaded (5xx), retired (404) or out-of-quota (daily 429) model hands over to the next; each has its own quota |
 | Cache | `cache = true` | successful requests are stored by prompt hash in `<out>/cache/`; rerunning the same command after a stop reuses them and only sends what is missing |
@@ -261,6 +266,9 @@ Kuku's confidential content and is **not** included in this repository.
 | Runtime | ~2 s | ~10 min, mostly pacing and retries while Gemini was overloaded |
 | Flagged for the editor | 19 low-confidence | 14 needs-context, 4 low-confidence |
 
+These numbers were measured before the cross-episode continuity checks (shared cast, cold read) were added;
+those add one request per show and have not yet been re-run on this show.
+
 What the comparison showed:
 
 - **The two backends mostly agree.** The LLM's top pick overlaps a rules pick in 45 of 50 episodes. The
@@ -291,7 +299,11 @@ Manual review of top picks against the script, and the failures found along the 
 - **Format-dependent rules.** Rule features rely on emotion tags and sound notes; a screenplay without
   them weakens the rules backend (the LLM backend is less affected).
 - **Cross-episode promos require the LLM backend**, and the model may place a later scene before an earlier
-  one as a flashback. File order is not story order, so code cannot enforce chronology; the editor checks it.
+  one as a flashback. File order is not story order, so code cannot enforce chronology. The cold reader is
+  asked to flag a scene that seems to come before its cause, but the editor makes the final check.
+- **Cross-episode continuity uses proxies.** "Same character on screen" is read from speaker labels and
+  names in action/camera lines, so a silent, unnamed presence is missed. The cold reader is a model without
+  context, not a real viewer.
 - **LLM self-scores are lenient** (most promos rate 4–5 of 5). Ranking leans on the blend with rule
   features; a pairwise comparison of the top candidates would discriminate better.
 - **Screenplay time is assumed to equal final-cut time.** If the edit drifts, timestamps need an offset.
@@ -306,7 +318,7 @@ promo_finder/
 ├── rules_backend.py   no-key candidate search
 ├── llm.py             OpenAI-compatible client (stdlib), retries, JSON extraction
 ├── prompts.py         all prompts
-├── llm_backend.py     per-episode proposals, repair loop, montages, raw logging
+├── llm_backend.py     per-episode proposals, repair loop, montages + cold read, raw logging
 ├── rank.py            final score and diversity-aware posting order
 ├── progress.py        live pipeline map for the web app (Graphviz DOT)
 ├── config.py          every tunable and the provider presets

@@ -140,6 +140,52 @@ def standalone_score(ep: Episode, t0: float, t1: float) -> tuple[float, list[str
     return max(min(s, 1.0), 0.0), notes
 
 
+# ---------- who is on screen (continuity across a cross-episode cut) ----------
+
+# Background roles that recur in many episodes without being the same person; they must not count as the
+# "same character" that carries a viewer across a cut. Numbered variants ("GUARD 2") are generic too.
+GENERIC_ROLES = set("""guest guests guard guards crowd all everyone both narrator voice voices announcer
+waiter waitress servant servants maid butler driver staff worker workers bystander bystanders onlooker
+onlookers reporter reporters officer officers policeman soldier soldiers man woman men women boy girl
+old young male female""".split())
+HONORIFICS = set("lady lord sir mr mr. mrs mrs. ms ms. miss dr dr. madam king queen prince princess duke "
+                 "duchess".split())
+
+
+def character_name(speaker: str) -> str:
+    """'LADY MARA (O.S.)' -> 'LADY MARA'."""
+    return re.sub(r"\s*\([^)]*\)", "", speaker or "").strip().upper()
+
+
+def is_generic(name: str) -> bool:
+    toks = name.lower().split()
+    return not toks or all(t in GENERIC_ROLES or t.strip("#").isdigit() for t in toks)
+
+
+def show_cast(episodes: list[Episode]) -> set[str]:
+    """Named speaking characters across the whole show (background roles excluded)."""
+    names = {character_name(b.speaker) for e in episodes for b in e.blocks if b.kind == "DIALOGUE"}
+    return {n for n in names if n and not is_generic(n)}
+
+
+def _name_pattern(name: str) -> re.Pattern:
+    """Match 'LADY MARA' as 'Lady Mara' or, after an honorific, just 'Mara' in action/camera text."""
+    toks = name.split()
+    alts = [re.escape(name)]
+    if len(toks) > 1 and toks[0].lower() in HONORIFICS and len(toks[-1]) >= 3:
+        alts.append(re.escape(toks[-1]))
+    return re.compile(r"\b(?:" + "|".join(alts) + r")\b", re.I)
+
+
+def characters_in(ep: Episode, t0: float, t1: float, cast: set[str]) -> set[str]:
+    """Named characters a viewer sees or hears in [t0, t1): speakers, plus cast named in action/camera lines."""
+    blocks = [b for b in ep.blocks if t0 - 0.05 <= b.start < t1 - 0.05]
+    present = {character_name(b.speaker) for b in blocks if b.kind == "DIALOGUE"} & cast
+    text = " ".join(b.text for b in blocks if b.kind in ("ACTION", "CAMERA"))
+    present |= {n for n in cast - present if _name_pattern(n).search(text)}
+    return present
+
+
 def duration_shape(d: float) -> float:
     """1.0 in the 25-45s sweet spot, tapering to 0.85 at 20s/60s."""
     if 25 <= d <= 45:

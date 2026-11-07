@@ -76,6 +76,74 @@ def test_needs_context_ignores_empty_answers():
     assert flagged("Rupert is Alexander's cousin who stole his title.")
 
 
+def test_cold_read_keeps_real_complaints():
+    from promo_finder.llm_backend import NOTHING_CONFUSING
+    for empty in ["", "None", "None.", "nothing", "N/A", "None; the clip is clear.", "Nothing - it reads fine"]:
+        assert NOTHING_CONFUSING.match(empty) or not empty, empty
+    for real in ["None of the characters are introduced", "Nothing connects the two scenes",
+                 "Who is the man with the ring?"]:
+        assert not NOTHING_CONFUSING.match(real), real
+
+
+def _tiny_episode(number, blocks):
+    """A hand-built episode: blocks are (start, end, kind, speaker, text)."""
+    from promo_finder.parse import Block, Episode
+    bs = [Block(i, s, e, k, sp, "", t, 1, "") for i, (s, e, k, sp, t) in enumerate(blocks)]
+    return Episode(number, f"Episode {number}", "", "", max(b.end for b in bs), bs)
+
+
+@pytest.fixture
+def cast_eps():
+    humiliation = _tiny_episode(1, [
+        (0.0, 30.0, "CAMERA", "", "Wide on the ballroom."),
+        (0.5, 3.0, "DIALOGUE", "VICTOR", "I am marrying your sister."),
+        (3.0, 6.0, "DIALOGUE", "LADY MARA (O.S.)", "You were my family."),
+        (6.0, 9.0, "DIALOGUE", "GUEST", "How shameful."),
+        (9.0, 30.0, "ACTION", "", "Victor throws champagne in her face."),
+    ])
+    guards_only = _tiny_episode(2, [
+        (0.0, 30.0, "CAMERA", "", "A dark corridor."),
+        (0.5, 3.0, "DIALOGUE", "GUARD 2", "Halt!"),
+        (3.0, 30.0, "DIALOGUE", "GUESTS", "Who goes there?"),
+    ])
+    payback = _tiny_episode(3, [
+        (0.0, 30.0, "CAMERA", "", "Close on Mara, now in a gown, at the head of the table."),
+        (0.5, 30.0, "DIALOGUE", "STRANGER", "Kneel."),
+    ])
+    return {e.number: e for e in (humiliation, guards_only, payback)}
+
+
+def test_shared_cast_check(cast_eps):
+    from promo_finder.features import show_cast, characters_in
+    from promo_finder.promo import check_shared_cast
+    cast = show_cast(cast_eps.values())
+    assert cast == {"VICTOR", "LADY MARA", "STRANGER"}            # background roles never count
+    assert characters_in(cast_eps[3], 0, 30, cast) == {"LADY MARA", "STRANGER"}  # named in the shot
+    good = Promo([Segment(1, 0, 15), Segment(3, 0, 15)], kind="montage")
+    assert check_shared_cast(good, cast_eps, cast) == [] and good.checks["shared_cast"] == [["LADY MARA"]]
+    bad = Promo([Segment(1, 0, 15), Segment(2, 0, 15)], kind="montage")
+    errs = check_shared_cast(bad, cast_eps, cast)
+    assert len(errs) == 1 and "no named character carries over" in errs[0] and "GUARD" not in errs[0]
+
+
+def test_montage_validation_uses_shared_cast(cast_eps, tmp_path, monkeypatch):
+    """A montage whose cut shares nobody is a validator error (so it can go to the repair round)."""
+    from promo_finder.llm_backend import LLMBackend
+    from promo_finder.features import show_cast
+    monkeypatch.setenv("LLM_BASE_URL", "http://127.0.0.1:9/v1/")
+    cfg = Config()
+    cfg.provider = "ollama"
+    be = LLMBackend(cfg, tmp_path / "raw", "show", log=lambda *a: None)
+    cast = show_cast(cast_eps.values())
+    mk = lambda *segs: Promo([Segment(*s) for s in segs], kind="montage")
+    good, errs = be._check([mk((1, 0, 15), (3, 0, 15)), mk((1, 0, 15), (2, 0, 15)), mk((1, 0, 12), (1, 15, 30))],
+                           cast_eps, "montage", cast)
+    assert len(good) == 1 and len(errs) == 2
+    assert "carries over" in errs[0] and "2+ episodes" in errs[1]
+    good, errs = be._check([mk((1, 0, 15), (2, 0, 15))], cast_eps, "montage", None)  # check turned off
+    assert len(good) == 1
+
+
 def _free_port():
     with socket.socket() as sock:
         sock.bind(("127.0.0.1", 0))
@@ -115,6 +183,41 @@ def test_llm_backend_end_to_end(fake_api, tmp_path):
     assert len(raw) == -(-n_eps // 10)  # episodes are batched 10 per request
     lines = [json.loads(l) for l in raw[0].read_text().splitlines()]
     assert len(lines) == 2 and "TRANSCRIPT" in lines[1]["user"]  # repair re-sends the transcript
+
+
+def test_montages_pass_continuity_checks(fake_api, tmp_path):
+    """Montages share a character at every cut, carry a link, and survive a context-free cold read."""
+    r = _run_llm(fake_api, tmp_path / "out")
+    assert r.returncode == 0, r.stderr
+    data = json.loads((tmp_path / "out" / "promos.json").read_text())
+    mc = data["meta"]["montage_checks"]
+    montages = [p for p in data["promos"] if p["kind"] == "montage"]
+    assert len(montages) == 1 and mc["proposed"] >= 2 and mc["dropped_cold_read"] >= 1  # fake reader fails C2+
+    m = montages[0]
+    assert m["link"] and all(m["checks"]["shared_cast"])
+    cr = m["checks"]["cold_read"]
+    assert cr["score"] == 4 and cr["proposer_standalone"] == 5
+    assert m["llm_scores"]["standalone"] == 4  # the cold reader's score replaces the proposer's own
+    read = json.loads((tmp_path / "out" / "raw_llm" / "cold_read.json").read_text().splitlines()[0])
+    assert "--- CUT ---" in read["user"]
+    assert "Ep " not in read["user"] and "LOGLINE" not in read["user"].upper()  # no show context leaks in
+
+
+def test_cold_read_can_be_turned_off(eps, fake_api, tmp_path, monkeypatch):
+    from promo_finder.progress import Pipeline
+    from promo_finder import llm_backend
+    for k, v in {"LLM_BASE_URL": fake_api, "LLM_MODEL": "fake", "LLM_MIN_INTERVAL": "0", "LLM_RETRY_BASE": "0"}.items():
+        monkeypatch.setenv(k, v)
+    monkeypatch.delenv("LLM_FALLBACK_MODELS", raising=False)
+    cfg = Config()
+    cfg.provider, cfg.cache, cfg.cold_read = "ollama", False, False
+    pipe = Pipeline()
+    pipe.set_mode(hybrid=True)
+    promos, stats = llm_backend.run(eps, cfg, tmp_path / "raw", "show", log=lambda *a: None, progress=pipe)
+    montages = [p for p in promos if p.kind == "montage"]
+    assert len(montages) >= 2 and not any("cold_read" in p.checks for p in montages)
+    assert not (tmp_path / "raw" / "cold_read.json").exists()
+    assert pipe.state["coldread"] == "skipped" and stats["montage_checks"]["dropped_cold_read"] == 0
 
 
 def test_llm_backend_resumes_from_cache(fake_api, tmp_path):
@@ -164,8 +267,8 @@ def test_progress_map_tracks_both_backends(eps, fake_api, tmp_path, monkeypatch)
     pipe = Pipeline()
     pipe.set_mode(hybrid=True)
     llm_backend.run(eps, cfg, tmp_path / "raw", "show", log=lambda *a: None, progress=pipe)
-    assert {n: pipe.state[n] for n in ("propose", "validate", "repair", "montages")} == dict.fromkeys(
-        ("propose", "validate", "repair", "montages"), "done")  # the fake API forces one repair
+    llm_nodes = ("propose", "validate", "repair", "montages", "coldread")
+    assert {n: pipe.state[n] for n in llm_nodes} == dict.fromkeys(llm_nodes, "done")  # the fake forces one repair
     assert pipe.state["rules"] == "skipped" and "active" not in pipe.state.values()
     dot = pipe.to_dot()
     assert dot.startswith("digraph") and "✓ Propose promos" in dot
