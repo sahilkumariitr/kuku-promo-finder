@@ -37,6 +37,10 @@ with st.sidebar:
         cfg.model = st.text_input("Model", PROVIDERS[cfg.provider][1])
         key = st.text_input("API key", type="password", help="Used for this session only, never stored.")
         cfg.montages = st.slider("Cross-episode promos", 0, 10, 5)
+        cfg.cold_read = st.checkbox(
+            "Cold-read check", cfg.cold_read, disabled=cfg.montages == 0,
+            help="One extra request: a reader with no show context gets only what each cross-episode promo "
+                 "shows and rates whether a stranger can follow it. Unclear ones are dropped.")
     eps_filter = st.text_input("Episodes (blank = all, e.g. 1-10)", "")
     with st.expander("Ranking weights"):
         cfg.w_hook = st.slider("Hook", 0.0, 1.0, cfg.w_hook)
@@ -148,6 +152,14 @@ pick = st.selectbox("Promo", promos, format_func=lambda p: f"#{p.rank} · " + " 
     f"E{s.episode} {fmt(s.start)}–{fmt(s.end)}" for s in p.segments) + f" · {p.duration:.0f}s")
 r = pick.rule_scores
 st.markdown(f"**Why:** {pick.why}")
+if pick.link:
+    st.markdown(f"**Link:** {pick.link}")
+if pick.checks.get("shared_cast"):
+    st.markdown("**Shared at each cut:** " + " / ".join(", ".join(c) or "nobody" for c in pick.checks["shared_cast"]))
+cr = pick.checks.get("cold_read")
+if cr:
+    st.markdown(f"**Cold read ({cr['score']}/5, no show context):** {cr['who']}"
+                + (f"  \n_Left hanging:_ {cr['unresolved']}" if cr.get("unresolved") else ""))
 cols = st.columns(4)
 cols[0].metric("Hook (rules)", f"{r['hook']:.2f}", pick.llm_scores.get("hook") and f"LLM {pick.llm_scores['hook']}/5")
 cols[1].metric("Cliffhanger (rules)", f"{r['cliffhanger']:.2f}",

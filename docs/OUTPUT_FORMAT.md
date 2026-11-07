@@ -22,8 +22,9 @@
 | `calls` | int | LLM backend: successful live responses |
 | `http_requests` | int | LLM backend: HTTP requests sent, including retries (what free-tier quotas count) |
 | `cache_hits` | int | LLM backend: requests answered from `<out>/cache/` |
-| `planned_requests` | int | LLM backend: batches + montage request, before repairs |
+| `planned_requests` | int | LLM backend: batches + montage request + cold-read request, before repairs |
 | `rules_fallback_episodes` | int[] | LLM backend: episodes that fell back to the rules backend's pick |
+| `montage_checks` | object | LLM backend: `proposed` montages in the model's final answer, `rejected_shared_cast` (a cut shared no named character), `dropped_cold_read` (rated below `cold_read_min` by the cold reader) |
 | `incomplete` | string | LLM backend, only if the run stopped early: the reason |
 | `prompt_tokens`, `completion_tokens` | int | LLM backend: usage reported by the provider (live requests only) |
 
@@ -42,21 +43,24 @@ Promos are listed in posting order.
 | `hook` | string | what happens in the first 3 seconds |
 | `cliffhanger` | string | the unresolved moment the promo cuts on |
 | `why` | string | one line on why it works |
-| `llm_scores` | object | LLM backend: integer 1–5 for `hook`, `cliffhanger`, `standalone` |
+| `link` | string | montages: which character carries the viewer across each cut and how the later moment follows from the earlier one (empty for single-episode promos) |
+| `llm_scores` | object | LLM backend: integer 1–5 for `hook`, `cliffhanger`, `standalone`. For a montage that passed the cold read, `standalone` is the cold reader's score, not the proposer's own |
 | `rule_scores` | object | 0–1 for `hook`, `cliffhanger`, `standalone`, `duration_fit`, plus `notes` |
+| `checks` | object | montages: `shared_cast` (named characters on screen on both sides of each cut, one list per cut) and `cold_read` (`who`, `unresolved`, `confusing`, `score` 1–5, and `proposer_standalone`, the proposer's own score it replaced). Empty for single-episode promos |
 | `score` | float | final blended score used for ranking |
 | `backend` | string | `llm`, `rules`, or `rules-fallback` |
-| `flags` | string[] | `weak_open`, `needs_context: ...`, `low_confidence: ...`, `fallback: ...` |
+| `flags` | string[] | `weak_open`, `needs_context: ...`, `low_confidence: ...`, `fallback: ...`, `trimmed: ...`; montages also `cold_read: ...` (what the cold reader found confusing, or that the check did not run) and `no_link` |
 | `raw` | object | LLM backend: the model's original proposal before snapping, plus the `model` that answered |
 
 ## `promos.csv`
 
-One row per promo with the same information flattened. `segments` is written as
-`E1 00:36.50-01:01.50 + E4 00:10.00-00:22.00`.
+One row per promo with the same information flattened, plus `cold_read_score` and `cold_read_who` for
+montages. `segments` is written as `E1 00:36.50-01:01.50 + E4 00:10.00-00:22.00`.
 
 ## `raw_llm/`
 
-JSON Lines, one file per batch (`ep_001-010.json`, ...) plus `montages.json`. Each line is one request:
+JSON Lines, one file per batch (`ep_001-010.json`, ...) plus `montages.json` and `cold_read.json` (the exact
+clip scripts the cold reader saw, and its verdicts). Each line is one request:
 `model`, `system`, `user`, and `response` or `error`; `cached: true` marks answers reused from `cache/`.
 A repair request, when needed, is appended as a further line.
 

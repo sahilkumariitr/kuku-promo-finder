@@ -21,7 +21,8 @@ NODES = {
     "rules": ("Score every shot-aligned\n20-60 s window", "code"),
     "validate": ("Validate and snap", "code"),
     "repair": ("Repair once", "LLM"),
-    "montages": ("Cross-episode\nmontages", "LLM"),
+    "montages": ("Cross-episode\nmontages", "LLM + shared-cast check"),
+    "coldread": ("Cold read\n(stranger test)", "LLM"),
     "rank": ("Score and rank", "code"),
     "output": ("Ranked table,\nJSON / CSV", ""),
     "editor": ("Editor review", "human"),
@@ -38,7 +39,8 @@ EDGES = [
     ("validate", "montages", "", ""),
     ("validate", "rules", "no valid promo:\nrules fallback", 'style="dashed", constraint=false'),
     ("rules", "rank", "", ""),
-    ("montages", "rank", "", ""),
+    ("montages", "coldread", "", ""),
+    ("coldread", "rank", "", ""),
     ("rank", "output", "", ""),
     ("output", "editor", "", ""),
 ]
@@ -90,7 +92,7 @@ class Pipeline:
         if hybrid:
             self.state["rules"], self.note["rules"] = SKIPPED, "only used as a fallback"
         else:
-            for n in ("propose", "validate", "repair", "montages"):
+            for n in ("propose", "validate", "repair", "montages", "coldread"):
                 self.state[n], self.note[n] = SKIPPED, "hybrid only"
         self._redraw()
 

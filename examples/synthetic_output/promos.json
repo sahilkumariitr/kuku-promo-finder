@@ -8,6 +8,7 @@
       "min_len": 20.0,
       "max_len": 60.0,
       "hook_window": 3.0,
+      "trim_tolerance": 3.0,
       "per_episode": 3,
       "max_overlap": 0.3,
       "w_hook": 0.4,
@@ -27,9 +28,21 @@
       "temperature": 0.3,
       "include_camera": false,
       "max_retries": 4,
+      "overload_retries": 2,
+      "retry_base": 10.0,
+      "episodes_per_call": 10,
+      "min_interval": -1.0,
+      "fallback_models": [
+        "auto"
+      ],
+      "rules_fallback": true,
+      "cache": true,
       "repair_rounds": 1,
       "montages": 5,
-      "pool_per_episode": 3
+      "pool_per_episode": 3,
+      "montage_shared_cast": true,
+      "cold_read": true,
+      "cold_read_min": 3
     },
     "seconds": 0.0
   },
@@ -47,6 +60,7 @@
       "hook": "GUEST (Mocking): \"Look at her. Pathetic.\"",
       "cliffhanger": "VICTOR (Shocked, Whispering): \"No... it can't be you.\"",
       "why": "Opens on a mocking line; uses the episode's own cliffhanger ending. (rule scores h=0.92 c=0.84 s=0.84)",
+      "link": "",
       "backend": "rules",
       "kind": "single",
       "llm_scores": {},
@@ -59,8 +73,9 @@
           "uses the episode's own cliffhanger ending"
         ]
       },
+      "checks": {},
       "flags": [],
-      "score": 0.9224,
+      "score": 0.8788,
       "rank": 1,
       "id": "P001",
       "raw": {},
@@ -82,6 +97,7 @@
       "hook": "VICTOR (Furious, Shouting): \"Guards! Throw this beggar out!\"",
       "cliffhanger": "SFX: A champagne glass shatters on the marble floor.",
       "why": "Opens on a furious line; music/SFX sting at the cut. (rule scores h=1.00 c=0.72 s=0.84)",
+      "link": "",
       "backend": "rules",
       "kind": "single",
       "llm_scores": {},
@@ -94,8 +110,9 @@
           "music/SFX sting at the cut"
         ]
       },
+      "checks": {},
       "flags": [],
-      "score": 0.8865,
+      "score": 0.8447,
       "rank": 2,
       "id": "P002",
       "raw": {},
@@ -117,6 +134,7 @@
       "hook": "LENA (Gloating, Mocking): \"Did you really think he would choose you, sister?\"",
       "cliffhanger": "MARA (Gasping): \"Ah!\"",
       "why": "Opens on a gloating line; cuts on a charged moment. (rule scores h=1.00 c=0.77 s=0.90)",
+      "link": "",
       "backend": "rules",
       "kind": "single",
       "llm_scores": {},
@@ -127,8 +145,9 @@
         "duration_fit": 0.925,
         "notes": []
       },
+      "checks": {},
       "flags": [],
-      "score": 0.8766,
+      "score": 0.8353,
       "rank": 3,
       "id": "P003",
       "raw": {},
@@ -150,6 +169,7 @@
       "hook": "MARA (Breathless): \"Who are you?\"",
       "cliffhanger": "SFX: Thunderous cliffhanger sting reverberates into silence.",
       "why": "Opens on a breathless line; music/SFX sting at the cut. (rule scores h=0.44 c=0.56 s=0.73)",
+      "link": "",
       "backend": "rules",
       "kind": "single",
       "llm_scores": {},
@@ -163,10 +183,11 @@
           "uses the episode's own cliffhanger ending"
         ]
       },
+      "checks": {},
       "flags": [
         "low_confidence: quiet episode, editor should check or skip"
       ],
-      "score": 0.59,
+      "score": 0.563,
       "rank": 4,
       "id": "P004",
       "raw": {},

@@ -7,6 +7,9 @@ Behaviour by model name:
   other   -> per episode in the prompt: one plausible promo from real timestamps plus one deliberately broken
              promo (too short); the batch's LAST episode gets only the broken one, which forces a repair.
              The repair call regenerates good promos from the transcript it is re-sent.
+             Montage request: two cross-episode promos joining pool moments that list a shared character,
+             in both orders. Cold-read request: clarity 4 for clip C1 and 1 for every other clip, so the
+             pipeline keeps one montage and drops the rest.
 Run:  python tests/fake_llm_server.py 8765
 """
 import json
@@ -56,6 +59,30 @@ def episode_promos(user, broken_last=True):
     return out
 
 
+ROW = re.compile(r"^M\d+ \| ep (\d+) \| (\d\d:\d\d\.\d\d)-(\d\d:\d\d\.\d\d)[^|]* \| ([^|]*) \|", re.M)
+
+
+def montage_promos(user):
+    rows = [(int(ep), a, b, {c.strip() for c in cast.split(",")} - {"-", ""}) for ep, a, b, cast in ROW.findall(user)]
+    pairs = [(x, y) for x in rows for y in rows if x[0] != y[0] and x[3] & y[3]]
+    out = []
+    for x, y in pairs[:4]:
+        shared = sorted(x[3] & y[3])[0]
+        out.append({"segments": [{"episode": x[0], "start": x[1], "end": ts(sec(x[1]) + 12)},
+                                 {"episode": y[0], "start": y[1], "end": y[2]}],
+                    "hook": "fake", "cliffhanger": "fake", "why": "fake montage",
+                    "link": f"{shared} is in both moments; the second answers the first.", "needs_context": "",
+                    "scores": {"hook": 4, "cliffhanger": 4, "standalone": 5}})
+    return out
+
+
+def cold_reads(user):
+    ids = re.findall(r"^===== (C\d+) =====$", user, re.M)
+    return [{"id": i, "who": "fake reader", "unresolved": "fake",
+             "confusing": "" if i == "C1" else "the second scene does not follow from the first",
+             "score": 4 if i == "C1" else 1} for i in ids]
+
+
 class H(BaseHTTPRequestHandler):
     def log_message(self, *a):
         pass
@@ -74,18 +101,14 @@ class H(BaseHTTPRequestHandler):
             code, err = ERRORS[body["model"]]
             return self._send(code, [{"error": err}])
         system, user = body["messages"][0]["content"], body["messages"][1]["content"]
-        if "Your previous answer to the request above" in user:
-            original = user.split("\n\n----\nYour previous answer", 1)[0]  # repair re-sends the transcript
+        original = user.split("\n\n----\nYour previous answer", 1)[0]  # repair re-sends the original request
+        if "never seen this show" in system:
+            out = {"reads": cold_reads(user)}
+        elif "CROSS-EPISODE" in system:
+            out = {"promos": montage_promos(original)}
+        elif "Your previous answer to the request above" in user:
             out = {"promos": [p for p in episode_promos(original, broken_last=False)
                               if p.get("why") != "deliberately too short"]}
-        elif "CROSS-EPISODE" in system:
-            rows = re.findall(r"^M\d+ \| ep (\d+) \| (\d\d:\d\d\.\d\d)-(\d\d:\d\d\.\d\d)", user, re.M)
-            a, b = rows[0], next(r for r in rows[1:] if r[0] != rows[0][0])
-            out = {"promos": [{"segments": [
-                {"episode": int(a[0]), "start": a[1], "end": ts(sec(a[1]) + 12)},
-                {"episode": int(b[0]), "start": b[1], "end": b[2]}],
-                "hook": "fake", "cliffhanger": "fake", "why": "fake montage",
-                "scores": {"hook": 4, "cliffhanger": 4, "standalone": 3}}]}
         else:
             out = {"promos": episode_promos(user)}
         self._send(200, {"choices": [{"message": {"content": json.dumps(out)}}],

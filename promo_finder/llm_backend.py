@@ -13,7 +13,8 @@ import re
 from pathlib import Path
 
 from .parse import Episode, fmt, transcript
-from .promo import Promo, Segment, parse_time, validate, rule_score
+from .promo import Promo, Segment, parse_time, validate, rule_score, check_shared_cast, clip_script
+from .features import show_cast, characters_in
 from .llm import LLMClient, LLMError, extract_json
 from . import prompts as P
 from . import rules_backend
@@ -50,6 +51,10 @@ NO_CONTEXT = re.compile(r"^\W*(none|n/?a|nothing|null|no (additional |extra |pri
                         r"not (needed|required|applicable))\b", re.I)
 
 
+# Stricter than NO_CONTEXT: "None of the characters are introduced" is a real complaint, "None." is not.
+NOTHING_CONFUSING = re.compile(r"^\W*(none|nothing|n/?a|null)(\W*$|\s*[.;,:-]\s)", re.I)
+
+
 def _clamp_score(x) -> int:
     try:
         return max(1, min(5, int(round(float(x)))))
@@ -72,7 +77,7 @@ def _to_promos(data: dict, default_ep: int | None, kind: str, max_items: int) ->
                 continue
         sc = item.get("scores") or {}
         p = Promo(segs, hook=str(item.get("hook", "")), cliffhanger=str(item.get("cliffhanger", "")),
-                  why=str(item.get("why", "")), backend="llm", kind=kind,
+                  why=str(item.get("why", "")), link=str(item.get("link") or "").strip(), backend="llm", kind=kind,
                   llm_scores={k: _clamp_score(sc.get(k)) for k in ("hook", "cliffhanger", "standalone")},
                   raw=item)
         nc = str(item.get("needs_context") or "").strip()
@@ -95,6 +100,7 @@ class LLMBackend:
         self.cfg, self.raw_dir, self.show, self.log = cfg, raw_dir, show_name, log
         self.progress = progress
         self.n_checked = self.n_valid = self.n_dropped = self.n_repairs = 0
+        self.montage_checks = {"proposed": 0, "rejected_shared_cast": 0, "dropped_cold_read": 0}
         self.raw_dir.mkdir(parents=True, exist_ok=True)
         self.cache_dir = raw_dir.parent / "cache"
         if cfg.cache:
@@ -146,26 +152,31 @@ class LLMBackend:
 
     # ---------- validation + one repair round ----------
 
-    def _check(self, promos, eps, kind):
+    def _check(self, promos, eps, kind, cast=None):
         good, errs = [], []
         for i, p in enumerate(promos, 1):
             label = f"promo {i}" + (f" (episode {p.raw.get('episode')})" if p.raw.get("episode") is not None else "")
             e = validate(p, eps, self.cfg)
             if not e and kind == "single" and len(p.episodes) > 1:
                 e = ["segments come from different episodes; a promo here must use one episode"]
+            if not e and kind == "montage":
+                if len(p.episodes) < 2:
+                    e = ["all segments come from one episode; a cross-episode promo needs 2+ episodes"]
+                elif cast is not None:
+                    e = check_shared_cast(p, eps, cast)
             if e:
                 errs.append(f"{label}: " + "; ".join(e))
             else:
                 good.append(p)
         return good, errs
 
-    def _validated(self, data, text, eps, default_ep, kind, tag, system, user, max_items):
+    def _validated(self, data, text, eps, default_ep, kind, tag, system, user, max_items, cast=None):
         stage = "validate" if kind == "single" else "montages"
         if kind == "single":
             self.n_checked += 1
             self.progress("validate", "active")
         promos = _to_promos(data or {}, default_ep, kind, max_items)
-        good, errs = self._check(promos, eps, kind)
+        good, errs = self._check(promos, eps, kind, cast)
         # A repair costs a whole request, and free tiers allow ~20/day: only spend one when an episode
         # (or the montage stage) would otherwise end up with nothing. Stray bad promos are just dropped.
         if kind == "single":
@@ -179,7 +190,7 @@ class LLMBackend:
             fixed_data, fixed_text = self._call(tag, system, P.REPAIR_USER.format(
                 original=user, errors="\n".join(errs), previous=text))
             if fixed_data is not None:
-                good2, errs2 = self._check(_to_promos(fixed_data, default_ep, kind, max_items), eps, kind)
+                good2, errs2 = self._check(_to_promos(fixed_data, default_ep, kind, max_items), eps, kind, cast)
                 if len(good2) >= len(good):
                     good, errs = good2, errs2
             self.progress(stage, "active")
@@ -189,6 +200,9 @@ class LLMBackend:
             self.n_valid += len(good)
             self.n_dropped += len(errs)
             self.progress("validate", None, f"{self.n_valid} valid, {self.n_dropped} dropped")
+        else:
+            self.montage_checks["proposed"] += len(good) + len(errs)
+            self.montage_checks["rejected_shared_cast"] += sum("carries over" in e for e in errs)
         return good
 
     # ---------- stages ----------
@@ -218,21 +232,73 @@ class LLMBackend:
         if self.cfg.montages <= 0 or len({p.segments[0].episode for p in pool}) < 2:
             return []
         eps = {e.number: e for e in episodes}
+        cast = show_cast(episodes)
         loglines = "\n".join(f"Ep {e.number}: {e.logline}" for e in episodes)
         rows = []
         for i, p in enumerate(pool, 1):
             rng = ", ".join(f"{fmt(s.start)}-{fmt(s.end)}" for s in p.segments)
-            rows.append(f"M{i} | ep {p.segments[0].episode} | {rng} | {p.hook[:140]} | {p.cliffhanger[:140]}")
+            who = set().union(*(characters_in(eps[s.episode], s.start, s.end, cast) for s in p.segments))
+            rows.append(f"M{i} | ep {p.segments[0].episode} | {rng} | {', '.join(sorted(who)) or '-'} | "
+                        f"{p.hook[:140]} | {p.cliffhanger[:140]}")
         user = P.MONTAGE_USER.format(show=self.show, loglines=loglines, pool="\n".join(rows), n=self.cfg.montages)
         data, text = self._call("montages", P.MONTAGE_SYSTEM, user)
         if data is None:
             return []
         promos = self._validated(data, text, eps, None, "montage", "montages", P.MONTAGE_SYSTEM, user,
-                                 max_items=self.cfg.montages + 2)
-        promos = [p for p in promos if len(p.episodes) >= 2]
+                                 max_items=self.cfg.montages + 2,
+                                 cast=cast if self.cfg.montage_shared_cast else None)
         for p in promos:
             rule_score(p, eps, self.cfg)
+            if not p.link:
+                p.flags.append("no_link: the model did not say how the segments connect")
         return promos
+
+    def cold_read(self, montages: list[Promo], episodes: list[Episode]) -> list[Promo]:
+        """Stranger test: a reader with no show context gets only what each montage shows, in playback order.
+
+        One request for all montages. Its clarity score replaces the proposer's own (lenient) standalone score;
+        montages it rates below cfg.cold_read_min are dropped. If the request fails, montages are kept, flagged.
+        """
+        if not montages or not self.cfg.cold_read:
+            return montages
+        eps = {e.number: e for e in episodes}
+        clips = "\n\n".join(P.COLD_READ_CLIP.format(id=f"C{i}", script=clip_script(p, eps))
+                            for i, p in enumerate(montages, 1))
+        data, _ = self._call("cold_read", P.COLD_READ_SYSTEM, P.COLD_READ_USER.format(n=len(montages), clips=clips))
+        if data is None:
+            self.log(f"    cold read: model call failed, montages kept unchecked: {_short(self.last_error)}")
+            for p in montages:
+                p.flags.append("cold_read: not run (model call failed), editor should check")
+            return montages
+        reads = {}
+        for r in data.get("reads") or []:
+            if isinstance(r, dict):
+                reads[str(r.get("id", "")).strip().upper()] = r
+        kept = []
+        for i, p in enumerate(montages, 1):
+            r = reads.get(f"C{i}")
+            if r is None:
+                p.flags.append("cold_read: no answer for this promo, editor should check")
+                kept.append(p)
+                continue
+            score = _clamp_score(r.get("score"))
+            confusing = str(r.get("confusing") or "").strip()
+            if NOTHING_CONFUSING.match(confusing):
+                confusing = ""
+            p.checks["cold_read"] = {"who": str(r.get("who") or "").strip(),
+                                     "unresolved": str(r.get("unresolved") or "").strip(),
+                                     "confusing": confusing, "score": score,
+                                     "proposer_standalone": p.llm_scores.get("standalone")}
+            if score < self.cfg.cold_read_min:
+                self.montage_checks["dropped_cold_read"] += 1
+                self.log(f"    cold read: dropped montage C{i} (clarity {score}/5)"
+                         + (f": {confusing[:110]}" if confusing else ""))
+                continue
+            p.llm_scores["standalone"] = score
+            if confusing:
+                p.flags.append(f"cold_read: {confusing}")
+            kept.append(p)
+        return kept
 
 
 STOP_NOTE = {"auth": "API key rejected", "model": "model unavailable", "quota_day": "daily quota used up"}
@@ -244,9 +310,14 @@ def run(episodes: list[Episode], cfg, raw_dir: Path, show_name: str, log=print,
     premise = episodes[0].logline if episodes else ""
     k = max(1, int(cfg.episodes_per_call))
     batches = [episodes[i:i + k] for i in range(0, len(episodes), k)]
-    planned = len(batches) + (1 if cfg.montages > 0 else 0)
+    extra = []
+    if cfg.montages > 0:
+        extra.append("1 montage request")
+        if cfg.cold_read:
+            extra.append("1 cold-read request")
+    planned = len(batches) + len(extra)
     log(f"  models: {' -> '.join(be.client.models)} | {len(batches)} request(s) of up to {k} episodes"
-        f"{' + 1 montage request' if cfg.montages > 0 else ''} (+ at most one repair each), "
+        f"{''.join(' + ' + x for x in extra)} (+ at most one repair each), "
         f"pacing {be.client.min_interval:.0f}s")
     stopped: StopLLM | None = None
     singles: list[Promo] = []
@@ -308,15 +379,35 @@ def run(episodes: list[Episode], cfg, raw_dir: Path, show_name: str, log=print,
             progress("montages", "error", STOP_NOTE.get(e.kind, "stopped"))
         else:
             if cfg.montages > 0 and len(by_ep) >= 2:
-                progress("montages", "done", f"{len(montage)} promo(s)")
+                mc = be.montage_checks
+                note = f"{len(montage)} promo(s)" + (f", {mc['rejected_shared_cast']} rejected: no shared character"
+                                                     if mc["rejected_shared_cast"] else "")
+                progress("montages", "done", note)
+        if stopped is None and montage and cfg.cold_read:
+            progress("coldread", "active", "1 request")
+            try:
+                montage = be.cold_read(montage, episodes)
+            except StopLLM as e:  # keep what we have; the montages just go out unchecked
+                stopped = e
+                log(f"  STOPPED before cold read: {e}")
+                progress("coldread", "error", STOP_NOTE.get(e.kind, "stopped"))
+                for p in montage:
+                    p.flags.append("cold_read: not run (model stopped), editor should check")
+            else:
+                dropped = be.montage_checks["dropped_cold_read"]
+                progress("coldread", "done", f"{len(montage)} kept" + (f", {dropped} dropped" if dropped else ""))
+        else:
+            progress("coldread", "skipped", "model stopped" if stopped is not None
+                     else "turned off" if not cfg.cold_read else "no montages")
         log(f"  cross-episode: {len(montage)} promo(s)")
     else:
         progress("montages", "skipped", "model stopped")
+        progress("coldread", "skipped", "model stopped")
 
     c = be.client
     stats = {"model": be.model_name, "models_used": be.answered_by, "live_requests_by_model": c.by_model, "calls": c.calls, "http_requests": c.attempts,
              "cache_hits": be.cache_hits, "planned_requests": planned, **c.usage,
-             "rules_fallback_episodes": fallback_eps}
+             "rules_fallback_episodes": fallback_eps, "montage_checks": be.montage_checks}
     if stopped is not None:
         stats["incomplete"] = str(stopped)
         log("  Run is INCOMPLETE (see above). Rerun the same command later: finished requests come from cache.")

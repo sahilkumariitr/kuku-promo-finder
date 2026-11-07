@@ -27,10 +27,12 @@ class Promo:
     hook: str = ""
     cliffhanger: str = ""
     why: str = ""
+    link: str = ""                             # montages: how the later moment follows from the earlier one
     backend: str = ""
     kind: str = "single"                       # single | montage
     llm_scores: dict = field(default_factory=dict)   # hook/cliffhanger/standalone, 1-5
     rule_scores: dict = field(default_factory=dict)  # 0-1
+    checks: dict = field(default_factory=dict)       # montages: shared_cast per cut, cold_read verdict
     flags: list[str] = field(default_factory=list)
     score: float = 0.0
     rank: int = 0
@@ -201,3 +203,41 @@ def validate(promo: Promo, eps: dict[int, Episode], cfg) -> list[str]:
     if h == 0.0:
         promo.flags.append("weak_open: no line or action in first 3s")
     return errors
+
+
+# ---------- cross-episode continuity ----------
+
+def check_shared_cast(promo: Promo, eps: dict[int, Episode], cast: set[str]) -> list[str]:
+    """Every cut must carry at least one named character over from the previous segment.
+
+    A stranger follows a jump across episodes by recognising a face; with nobody in common, two clips read
+    as two unrelated shows. Records the characters shared at each cut in promo.checks["shared_cast"] and
+    returns one error per cut that shares nobody.
+    """
+    present = [F.characters_in(eps[s.episode], s.start, s.end, cast) for s in promo.segments]
+    shared, errors = [], []
+    for i in range(len(present) - 1):
+        common = sorted(present[i] & present[i + 1])
+        shared.append(common)
+        if not common:
+            who = lambda x: ", ".join(sorted(x)) or "no named character"
+            errors.append(f"cut {i + 1}->{i + 2}: no named character carries over "
+                          f"(segment {i + 1}: {who(present[i])}; segment {i + 2}: {who(present[i + 1])})")
+    promo.checks["shared_cast"] = shared
+    return errors
+
+
+def clip_script(promo: Promo, eps: dict[int, Episode], max_cam_chars: int = 90) -> str:
+    """What a viewer sees and hears, in playback order, with no episode numbers, timestamps or loglines."""
+    parts = []
+    for s in promo.segments:
+        lines = []
+        for b in eps[s.episode].blocks:
+            if not (s.start - 0.05 <= b.start < s.end - 0.05):
+                continue
+            if b.kind == "CAMERA":
+                lines.append(f"SHOT: {b.text[:max_cam_chars]}")
+            else:
+                lines.append(describe_beat(b))
+        parts.append("\n".join(lines))
+    return "\n--- CUT ---\n".join(parts)

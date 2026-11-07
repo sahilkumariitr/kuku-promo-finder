@@ -21,15 +21,15 @@ def write_outputs(promos, out: Path, meta: dict):
     with open(out / "promos.csv", "w", newline="", encoding="utf-8") as f:
         w = csv.writer(f)
         w.writerow(["rank", "id", "kind", "episodes", "segments", "duration_s", "score", "hook", "cliffhanger",
-                    "why", "llm_hook", "llm_cliff", "llm_standalone", "rule_hook", "rule_cliff",
-                    "rule_standalone", "flags"])
+                    "why", "link", "llm_hook", "llm_cliff", "llm_standalone", "rule_hook", "rule_cliff",
+                    "rule_standalone", "cold_read_score", "cold_read_who", "flags"])
         for p in promos:
             segs = " + ".join(f"E{s.episode} {fmt(s.start)}-{fmt(s.end)}" for s in p.segments)
-            l, r = p.llm_scores, p.rule_scores
+            l, r, cr = p.llm_scores, p.rule_scores, p.checks.get("cold_read", {})
             w.writerow([p.rank, p.id, p.kind, " ".join(map(str, p.episodes)), segs, round(p.duration, 1),
-                        p.score, p.hook, p.cliffhanger, p.why, l.get("hook", ""), l.get("cliffhanger", ""),
+                        p.score, p.hook, p.cliffhanger, p.why, p.link, l.get("hook", ""), l.get("cliffhanger", ""),
                         l.get("standalone", ""), r.get("hook"), r.get("cliffhanger"), r.get("standalone"),
-                        " | ".join(p.flags)])
+                        cr.get("score", ""), cr.get("who", ""), " | ".join(p.flags)])
 
     lines = [f"# Promos — {meta['show']}", "",
              f"Backend: **{meta['backend']}**" + (f" (model `{meta.get('model')}`)" if meta.get("model") else "")
@@ -41,6 +41,11 @@ def write_outputs(promos, out: Path, meta: dict):
         if meta.get("rules_fallback_episodes"):
             lines += [f"Rules-backend fallback used for episodes: "
                       f"{', '.join(map(str, meta['rules_fallback_episodes']))}", ""]
+        mc = meta.get("montage_checks") or {}
+        if mc.get("proposed"):
+            lines += [f"Cross-episode checks: {mc['proposed']} proposed · {mc.get('rejected_shared_cast', 0)} "
+                      f"rejected (no shared character) · {mc.get('dropped_cold_read', 0)} dropped by the cold read",
+                      ""]
         if meta.get("incomplete"):
             lines += [f"> **Incomplete run:** {meta['incomplete'].splitlines()[0]}  ", 
                       "> Rerun the same command later; finished requests are reused from cache.", ""]
@@ -49,6 +54,14 @@ def write_outputs(promos, out: Path, meta: dict):
         segs = " + ".join(f"Ep {s.episode} {fmt(s.start)}–{fmt(s.end)}" for s in p.segments)
         lines += [f"### {p.rank}. {segs} ({p.duration:.0f}s, score {p.score:.3f})",
                   f"- **Hook:** {p.hook}", f"- **Cliffhanger:** {p.cliffhanger}", f"- **Why:** {p.why}"]
+        if p.link:
+            lines.append(f"- **Link:** {p.link}")
+        if p.checks.get("shared_cast"):
+            lines.append("- **Shared at each cut:** " + " / ".join(", ".join(c) or "nobody"
+                                                                  for c in p.checks["shared_cast"]))
+        cr = p.checks.get("cold_read")
+        if cr:
+            lines.append(f"- **Cold read ({cr['score']}/5):** {cr['who']}")
         if p.flags:
             lines.append(f"- **Flags:** {'; '.join(p.flags)}")
         lines.append("")

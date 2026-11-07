@@ -55,6 +55,30 @@ Rule features, built from the vocabulary that actually occurs in the scripts:
 | Cliffhanger cues | the episode's own ending, SFX stings ("swell", "ominous", "cut to black"), lines ending on `?` or `...` |
 | Needs-context penalty | opening on a reply (`And...`, `But...`), a continuation of the previous line, or a bracketed reaction |
 
+### Cross-episode promos: why a stranger can follow them
+A montage joins moments from different episodes, so "stands alone" is harder: the viewer has to accept a jump
+across time without the episodes in between. A stranger can follow that jump when (1) the same people are on
+screen on both sides of the cut, (2) the later moment is a consequence of the earlier one (a wrong, then the
+payback), and (3) nothing that happened in between is needed. Microdramas help: their arcs (humiliation then
+revenge, hidden identity then reveal) are so familiar that viewers fill the gap the way they would after a
+"six months later" card.
+
+Earlier versions left all of this to the montage prompt, and the model judged from one-line summaries of each
+moment. Code only checked timestamps and length. Now each condition has its own check:
+
+| Check | Done by | What it catches |
+|---|---|---|
+| Shared cast at every cut | code | Every cut must keep at least one named character from the previous segment, either speaking or named in an action/camera line. Background roles (`GUARD 2`, `GUESTS`, `CROWD`, ...) never count. A failing montage is a validator error, so it goes through the normal repair round. The pool sent to the model lists each moment's characters so it can meet the rule |
+| Link | LLM | The montage prompt asks for one sentence naming the character who carries the viewer across each cut and how the later moment follows from the earlier one. A montage without one is flagged `no_link` |
+| Cold read | LLM, 1 request | A second call gets *only* what each montage shows, in playback order: shots, actions and lines, with `--- CUT ---` between scenes and no show name, loglines, episode numbers or timestamps. It says who is wronging whom, what is left hanging, what a stranger could not follow (including a later scene placed before its cause), and rates clarity 1–5. That score replaces the proposer's own `standalone` score, which is lenient (finding 10). Montages below `cold_read_min` (default 3) are dropped |
+| Final call | human | the editor sees the link, the characters shared at each cut and the cold reader's summary next to the clip |
+
+The shared-cast check is the screenplay version of "the viewer recognises a face". Speaker labels are a
+proxy: a character who is on screen but neither speaks nor is named in a camera or action line is missed.
+The cold read is a proxy for a stranger, since the same kind of model, without context, is not the same as a
+person scrolling a feed. Together they turn "trust the proposer" into two independent checks plus an
+editor, for one extra request per show.
+
 ### Posting order
 After scoring, a greedy pass orders promos for posting and penalises a clip that shares an episode (or a
 neighbouring episode) with one of the previous five posts. The goal is a feed that shows several sides
@@ -73,7 +97,7 @@ code, surrounding prose). Retries use exponential backoff for rate limits.
 | Transcript tokens (camera directions dropped) | ~48k |
 | Total input incl. prompts | ~60-70k |
 | Output | ~25k |
-| Requests | 5 batches of 10 episodes + 1 montage request (+ a repair only if an episode is left uncovered) |
+| Requests | 5 batches of 10 episodes + 1 montage request + 1 cold-read request (+ a repair only if an episode, or the montage stage, is left with nothing) |
 | Cost | free tier on Gemini Flash; a few cents at paid flash-class prices |
 | Rules backend | ~2 s, no cost |
 
@@ -118,3 +142,4 @@ quoted because the content is confidential.
 | 11 | One promo was 60.1 s, and two proposals at ~60.8 s were dropped | the validator allowed 0.5 s of slack, and snapping outward to a shot boundary can overshoot | hard 60.0 s limit; overshoots up to 3 s are trimmed back to the latest clean cut (flagged `trimmed`); larger ones are still rejected so a model's chosen cliffhanger is never silently cut |
 | 12 | A cross-episode promo played a later scene before an earlier one | the model framed it as a flashback; episode file order is not reliable story order, so code cannot enforce chronology | left to the editor; listed as a limitation |
 | 13 | All 5 cross-episode promos were flagged "needs context" with text like "None; it is self-explanatory" | the cross-episode prompt's schema did not say to leave the field empty (the single-episode prompt did), and the code only ignored an exact "none" | the cross-episode prompt now says "or an empty string if nothing" (the single-episode prompt is left unchanged so its cached answers stay valid); the code ignores answers starting with none / n/a / no context; unit test added. The 14 single-episode flags were all genuine backstory a stranger would miss |
+| 14 | Nothing checked that a cross-episode promo hangs together: code validated timestamps and length, and the model chose montages from one-line summaries of each moment | montage coherence was left entirely to the proposer and its own (lenient) standalone score | shared-cast check at every cut (code, feeds the repair round), a `link` sentence per montage, and a context-free cold read whose score replaces the self-score and drops unclear montages; see "Cross-episode promos" above. Not yet re-measured on the provided show: the next real run will report the counts in `meta.montage_checks` |
