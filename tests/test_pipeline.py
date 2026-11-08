@@ -169,3 +169,31 @@ def test_progress_map_tracks_both_backends(eps, fake_api, tmp_path, monkeypatch)
     assert pipe.state["rules"] == "skipped" and "active" not in pipe.state.values()
     dot = pipe.to_dot()
     assert dot.startswith("digraph") and "✓ Propose promos" in dot
+
+
+def test_episode_filter_accepts_what_people_type():
+    from promo_finder.parse import parse_episode_filter as f
+    assert f("") is None and f("   ") is None
+    assert f("1-3, 7") == {1, 2, 3, 7}
+    assert f("1–3") == {1, 2, 3}             # en dash, as phones and docs auto-format it
+    assert f("ep 3") == {3} and f("Episode 2-3") == {2, 3}
+    assert f("3-1") == {1, 2, 3}             # reversed range
+    assert f("1-3,") == {1, 2, 3}            # trailing comma
+    for bad in ("abc", "1-x", "1-999999999"):
+        with pytest.raises(ValueError):
+            f(bad)
+
+
+@pytest.mark.parametrize("model", ["dropped", "nullchoices"])
+def test_llm_client_survives_dropped_connections_and_bad_replies(fake_api, model):
+    """A server that hangs up or sends a malformed reply must raise LLMError (handled), never crash the app."""
+    from promo_finder.llm import LLMClient, LLMError
+    client = LLMClient(fake_api, [model], max_retries=1, log=lambda *_: None)
+    with pytest.raises(LLMError):
+        client.chat("system", "user")
+    assert client.attempts == 2  # retried once, then gave up cleanly
+
+
+def test_llm_run_falls_back_to_rules_when_the_server_hangs_up(fake_api, tmp_path):
+    r = _run_llm(fake_api, tmp_path / "out", model="dropped", LLM_FALLBACK_MODELS="")
+    assert "Traceback" not in r.stderr, r.stderr[-800:]

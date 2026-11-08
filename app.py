@@ -5,7 +5,7 @@ No show data is bundled with the app; it only processes what you upload.
 """
 import io
 import json
-import os
+import shutil
 import tempfile
 import zipfile
 from pathlib import Path
@@ -14,7 +14,7 @@ import pandas as pd
 import streamlit as st
 
 from promo_finder.config import Config, PROVIDERS
-from promo_finder.parse import load_show, fmt
+from promo_finder.parse import load_show, fmt, parse_episode_filter
 from promo_finder.progress import Pipeline
 from promo_finder.rank import rank
 from promo_finder import rules_backend
@@ -35,7 +35,8 @@ with st.sidebar:
     if backend == HYBRID:
         cfg.provider = st.selectbox("Provider", list(PROVIDERS), index=0)
         cfg.model = st.text_input("Model", PROVIDERS[cfg.provider][1])
-        key = st.text_input("API key", type="password", help="Used for this session only, never stored.")
+        key = st.text_input("API key", type="password", help="Used for this run only, never stored.")
+        cfg.api_key = key.strip()  # passed to this run only; pasted keys often carry a stray space or newline
         cfg.montages = st.slider("Cross-episode promos", 0, 10, 5)
     eps_filter = st.text_input("Episodes (blank = all, e.g. 1-10)", "")
     with st.expander("Ranking weights"):
@@ -46,15 +47,25 @@ with st.sidebar:
     go = st.button("Find promos", type="primary", disabled=up is None)
 
 
-def parse_filter(s, nums):
-    if not s.strip():
-        return nums
-    want = set()
-    for part in s.split(","):
-        lo, _, hi = part.strip().partition("-")
-        want.update(range(int(lo), int(hi or lo) + 1))
-    return [n for n in nums if n in want]
+def run_rules(eps, pipe):
+    return rules_backend.run(eps, cfg, log=lambda *_: None, progress=pipe)
 
+
+try:
+    wanted = parse_episode_filter(eps_filter)
+except ValueError as e:
+    wanted = None
+    if go:
+        st.error(f"Couldn't read the Episodes box (\"{e}\"). Use numbers like `1-10` or `1, 3, 5`, "
+                 "or leave it blank for all episodes.")
+        go = False
+
+LOCAL_HOSTS = ("localhost", "127.0.0.1", "0.0.0.0", "host.docker.internal")
+base_url, _, api_key = cfg.llm_settings()
+if go and backend == HYBRID and not api_key and not any(h in base_url for h in LOCAL_HOSTS):
+    st.error("Hybrid mode needs an API key for the model. Paste one in the sidebar "
+             "(a free Gemini key: aistudio.google.com/apikey), or choose **Rules only**, which needs no key.")
+    go = False
 
 ran_now = False
 if go and up is not None:
@@ -74,12 +85,18 @@ if go and up is not None:
     pipe("parse", "active")
     parsed = load_show(tmp)
     not_scripts = [Path(e.path).name for e in parsed if not e.blocks]  # no timestamped [mm:ss-mm:ss] lines
-    eps = [e for e in parsed if e.blocks]
-    keep = set(parse_filter(eps_filter, [e.number for e in eps]))
-    eps = [e for e in eps if e.number in keep]
+    all_eps = [e for e in parsed if e.blocks]
+    eps = [e for e in all_eps if wanted is None or e.number in wanted]
     if not_scripts:
         st.warning(f"Skipped {len(not_scripts)} file(s) with no timestamped screenplay lines: "
                    + ", ".join(not_scripts[:5]) + ("…" if len(not_scripts) > 5 else ""))
+    if all_eps and not eps:
+        nums = sorted(e.number for e in all_eps)
+        pipe.fail("no episodes in range", "parse")
+        st.session_state.update(promos=None, pipeline_dot=None)
+        st.error(f"No episodes match \"{eps_filter.strip()}\". This upload has episodes "
+                 f"{nums[0]}–{nums[-1]}; clear the Episodes box to use all of them.")
+        st.stop()
     if not eps:
         pipe.fail("no screenplays found", "parse")
         st.session_state.update(promos=None, pipeline_dot=None)
@@ -93,21 +110,30 @@ if go and up is not None:
                    + ". Is this a screenplay? Episodes need an `EPISODE NUMBER:` line or a name like episode-001.txt.")
     pipe("backend", "done", "hybrid" if backend == HYBRID else "rules only")
     show = Path(up.name).stem
+    llm_failed = None
     with log_col.status(f"Processing {len(eps)} episode(s)…", expanded=True) as status:
         if backend == HYBRID:
             from promo_finder import llm_backend
-            os.environ["LLM_API_KEY"] = key
             try:
                 promos, stats = llm_backend.run(eps, cfg, tmp / "raw_llm", show, log=st.write, progress=pipe)
-            except SystemExit as e:  # no key, or the provider refused every request
-                pipe.fail("stopped")
-                status.update(label="Stopped", state="error")
-                st.session_state.update(promos=None, pipeline_dot=None)
-                st.error(str(e))
-                st.stop()
+            except SystemExit as e:  # the provider refused every request (bad key, quota, retired model)
+                llm_failed = str(e)
+            except Exception as e:  # never show a traceback: fall back to the no-key backend instead
+                llm_failed = f"{type(e).__name__}: {e}"
+            if llm_failed:
+                pipe = Pipeline(on_change=lambda p: chart.graphviz_chart(p.to_dot(), width="stretch"))
+                pipe.set_mode(hybrid=False)
+                pipe("input", "done", f"{n_files} .txt file(s)")
+                pipe("parse", "done", f"{len(eps)} episode(s)")
+                pipe("backend", "done", "rules only (model failed)")
+                promos, stats = run_rules(eps, pipe), {}
         else:
-            promos, stats = rules_backend.run(eps, cfg, log=lambda *_: None, progress=pipe), {}
+            promos, stats = run_rules(eps, pipe), {}
         status.update(label=f"Done: {len(promos)} promos (log)", state="complete", expanded=False)
+    shutil.rmtree(tmp, ignore_errors=True)
+    if llm_failed:
+        st.warning("The model run failed, so these are **Rules only** results (no API key needed). "
+                   f"Details: {llm_failed[:400]}")
     if stats.get("incomplete"):
         st.warning("The model stopped partway, so this run is incomplete. " + stats["incomplete"])
     pipe("rank", "active")
@@ -120,7 +146,8 @@ if go and up is not None:
 
 promos = st.session_state.get("promos")
 if not promos:
-    st.info("Upload a zip of episode screenplays and press **Find promos**.")
+    st.info("Upload a .zip of episode screenplays in the sidebar (on a phone, tap **»** at the top left), "
+            "then press **Find promos**. **Rules only** needs no API key and takes a few seconds.")
     st.stop()
 
 if not ran_now and st.session_state.get("pipeline_dot"):

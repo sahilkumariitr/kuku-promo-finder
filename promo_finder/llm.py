@@ -8,6 +8,7 @@ and a model that is overloaded, retired or out of daily quota hands over to the 
 """
 from __future__ import annotations
 
+import http.client
 import json
 import re
 import time
@@ -122,9 +123,14 @@ class LLMClient:
                 d = self.retry_base * overloads
                 self.log(f"    {model} busy (HTTP {e.code}); retry in {d:.0f}s")
                 time.sleep(d)
-            except (urllib.error.URLError, TimeoutError, KeyError, IndexError, json.JSONDecodeError) as e:
+            except (OSError, http.client.HTTPException, KeyError, IndexError, TypeError, json.JSONDecodeError) as e:
+                # OSError covers URLError, timeouts, dropped connections and TLS errors; HTTPException covers
+                # truncated replies. All are transient, so retry with backoff instead of crashing the run.
                 last = repr(e)
-                time.sleep(min(60, 4 * 2 ** attempt))
+                if attempt < self.max_retries:
+                    d = min(60, 4 * 2 ** attempt)
+                    self.log(f"    {model}: connection problem ({type(e).__name__}); retry in {d}s")
+                    time.sleep(d)
         raise LLMError(last or "unknown error", status, "overload" if status in (500, 502, 503, 504) else "other")
 
     def chat(self, system: str, user: str, json_mode: bool = True) -> str:

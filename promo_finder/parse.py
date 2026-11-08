@@ -147,3 +147,22 @@ def transcript(ep: Episode, include_camera: bool = False, max_cam_chars: int = 9
         else:
             lines.append(f"{t} {b.kind}: {b.text}")
     return "\n".join(lines)
+
+
+def parse_episode_filter(s: str) -> set[int] | None:
+    """'1-10, 15' -> {1..10, 15}; blank -> None (all episodes). Raises ValueError on anything else.
+
+    Accepts en/em dashes and an optional 'ep'/'episode' prefix, since phones and docs auto-format text."""
+    s = s.strip().lower().replace("–", "-").replace("—", "-")
+    if not s:
+        return None
+    want = set()
+    for part in filter(None, (p.strip() for p in s.split(","))):
+        m = re.fullmatch(r"(?:ep(?:isode)?s?\.?\s*)?(\d+)(?:\s*-\s*(?:ep(?:isode)?\.?\s*)?(\d+))?", part)
+        if not m:
+            raise ValueError(part)
+        lo, hi = sorted((int(m.group(1)), int(m.group(2) or m.group(1))))
+        if hi - lo > 10_000:  # a typo like 1-999999999 would otherwise build a huge set and hang the app
+            raise ValueError(part)
+        want.update(range(lo, hi + 1))
+    return want
