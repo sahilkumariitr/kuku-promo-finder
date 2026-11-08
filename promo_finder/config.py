@@ -64,6 +64,7 @@ class Config:
     model: str = ""
     base_url: str = ""
     api_key_env: str = ""
+    api_key: str = ""             # set directly (e.g. by the web app) instead of via the environment
     temperature: float = 0.3
     include_camera: bool = False
     max_retries: int = 4
@@ -85,7 +86,7 @@ class Config:
         base = os.environ.get("LLM_BASE_URL", self.base_url or base)
         model = os.environ.get("LLM_MODEL", self.model or model)
         key_env = self.api_key_env or key_env
-        key = os.environ.get("LLM_API_KEY") or (os.environ.get(key_env, "") if key_env else "")
+        key = self.api_key or os.environ.get("LLM_API_KEY") or (os.environ.get(key_env, "") if key_env else "")
         return base, model, key
 
     def llm_models(self) -> list[str]:

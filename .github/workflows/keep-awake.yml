@@ -1,0 +1,35 @@
+name: Keep web app awake
+
+# Streamlit Community Cloud puts an app to sleep after 12 hours without a visit, and an HTTP ping
+# doesn't count. This opens the app in a headless browser every 4 hours (waking it if needed), so a
+# reviewer never lands on the sleep screen. A failed run means the app didn't load: GitHub emails the owner.
+on:
+  schedule:
+    - cron: "23 */4 * * *"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  visit:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Install headless browser
+        run: |
+          pip install playwright==1.64.1
+          python -m playwright install --with-deps chromium
+      - name: Visit the app
+        run: python .github/scripts/keep_awake.py "https://kuku-promo-finder-23119038.streamlit.app/"
+      - name: Keep a screenshot if the app didn't load
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: keep-awake-failure
+          path: keep-awake-failure.png
+          if-no-files-found: ignore

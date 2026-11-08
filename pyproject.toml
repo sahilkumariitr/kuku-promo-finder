@@ -13,7 +13,7 @@ authors = [{ name = "Sahil" }]
 dependencies = []            # core pipeline is standard-library only
 
 [project.optional-dependencies]
-app = ["streamlit>=1.40", "pandas>=2.0"]
+app = ["streamlit>=1.40,<2", "pandas>=2.0,<4"]
 dev = ["pytest>=8.0"]
 
 [project.scripts]

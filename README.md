@@ -44,7 +44,7 @@ A promo, as defined in the brief, is a 20–60 s clip that:
 - **Model-agnostic.** Any OpenAI-compatible endpoint (Gemini, Groq, OpenRouter, OpenAI, a local Ollama
   model, or a company gateway). Swapping models is one flag or environment variable.
 - **Never trusts the model's timestamps.** Every proposal is validated in code: cuts snap to shot
-  boundaries, never land mid-line, stay within 20–60 s, and must put a line or action in the first 3 s.
+  boundaries, never end mid-line, stay within 20–60 s, and must put a line or action in the first 3 s.
   Invalid proposals go back to the model once with the exact errors.
 - **Runs a whole show on a free tier.** Episodes are batched 10 per request (~6 requests per show), requests
   are paced to the provider's per-minute limit, finished requests are cached so an interrupted run resumes
@@ -142,7 +142,7 @@ flowchart LR
 |---|---|---|
 | Parse blocks into (episode, start, end, kind, speaker, emotion, text) | code | the format is regular; free and never wrong |
 | Propose promos with hook, cliffhanger, reason and 1–5 scores | LLM | "would a stranger stop scrolling and follow this?" needs language understanding |
-| Snap to shot boundaries, forbid mid-line cuts, enforce 20–60 s, check the first 3 s, reject non-existent timestamps | code | models invent or fudge timestamps; rules are cheap and certain |
+| Snap to shot boundaries, forbid ending mid-line, enforce 20–60 s, check the first 3 s, reject non-existent timestamps | code | models invent or fudge timestamps; rules are cheap and certain |
 | Fix rejected proposals | LLM, one round | validator errors are sent back verbatim |
 | Rule features: emotion-tag intensity, physical action, reveal words, music stings, episode-end cliffhangers, mid-conversation openings | code | a second opinion blended into the score, so one odd LLM answer cannot top the list |
 | Posting order | code | score, plus a small bonus for early episodes and a diversity penalty so neighbouring posts come from different scenes |
@@ -252,30 +252,40 @@ PROMO_DATA=path/to/show_folder pytest -q
 The input pack (50 episodes of an English-language show, ~105 minutes, 3,727 timestamped blocks) is
 Kuku's confidential content and is **not** included in this repository.
 
+The numbers below come from the submitted raw outputs: the LLM backend run through the web app
+("Hybrid: LLM + rules", `gemini-3.8-flash`) and the rules backend run through the CLI. Those outputs quote
+the scripts, so they are shared privately with the submission rather than in this repository.
+
 | | Rules backend (no key) | LLM backend (Gemini free tier) |
 |---|---|---|
-| Promos | 141 (1–3 per episode) | 67 single-episode + 5 cross-episode |
+| Promos | 141 (1–3 per episode) | 50 single-episode (one per episode) + 5 cross-episode |
 | Episodes covered | 50 / 50 | 50 / 50, no rules fallback needed |
-| Clip length | 20.7–53.5 s | 23.3–59.9 s |
-| Requests and cost | none | 6 requests (5 batches of 10 episodes + 1 montage), ~85k input / ~10k output tokens, $0 |
-| Runtime | ~2 s | ~10 min, mostly pacing and retries while Gemini was overloaded |
-| Flagged for the editor | 19 low-confidence | 14 needs-context, 4 low-confidence |
+| Clip length | 20.7–53.5 s | 24.0–59.9 s |
+| Requests and cost | none | 6 LLM calls (5 batches of 10 episodes + 1 montage request), no repairs needed, $0 |
+| Runtime | ~2 s | not logged (the web app doesn't record runtime or tokens) |
+| Flagged for the editor | 19 low-confidence | 12 needs-context, 8 low-confidence |
 
 What the comparison showed:
 
-- **The two backends mostly agree.** The LLM's top pick overlaps a rules pick in 45 of 50 episodes. The
-  differences are story beats the rules undervalued (a fire, the hero revealing himself, an arrest).
-- **The LLM fixes the rules backend's known miss.** A strong confrontation that the rules rank #105 of 141
-  ranks #45 with the LLM, which chose a cut that carries the scene through.
-- **The LLM's own scores are lenient.** 36 of 67 promos rated themselves 5/5/5 or 4/4/4, so on their own
-  they barely order the list; the 30% blend with rule features is what separates them.
-- **Validation matters.** 67 of 68 proposals passed; 2 needed a small trim to fit 60 s.
-- **The fallback chain was needed.** Gemini 3.8 Flash returned HTTP 503 mid-run, so 3.6 Flash answered three
-  of the five batches; later 3.8 Flash's daily quota ran out and 3.6 Flash answered the montage request.
+- **The two backends agree on where the promos are.** The LLM's pick overlaps a rules pick in all 50
+  episodes (in 48 they share at least half the clip). They disagree on the order: the LLM puts story turns
+  near the top that the rules rank low, such as the hero revealing himself (episode 39: #4 vs #100 of 141)
+  and an informant addressing him as the Duke (episode 19: #15 vs #128).
+- **The LLM fixes the rules backend's known miss.** A strong confrontation in episode 42 that the rules
+  rank #105 of 141 ranks #47 with the LLM, which chose a cut that carries the scene through.
+- **The LLM's own scores are lenient.** 25 of 55 promos rated themselves 5/5/5 or 4/4/4, and 48 of 55 gave
+  themselves at least 4 on all three, so on their own they barely order the list; the 30% blend with rule
+  features is what separates them.
+- **Trimming can cut the cliffhanger.** 2 of 55 promos ran past 60 s once their cuts were snapped to shot
+  boundaries, and in both the trim removed the line the promo was meant to end on (the proposal in
+  episode 3, the gallows threat in episode 28). The validator always shortens the last segment; it should
+  take the extra seconds from an earlier segment instead.
+- **The fallback chain is a safety net.** In an earlier run Gemini 3.8 Flash returned HTTP 503 mid-run and
+  3.6 Flash answered three of the five batches. In the submitted run, 3.8 Flash answered all five.
 - **The cache made iteration free.** After fixing validation and ranking, re-running the whole show cost one
   request (the montage) because the five batch answers came from cache.
-- **Cross-episode promos follow the story's arc**, e.g. a public humiliation in episode 1 cut against the
-  hero reclaiming his title much later.
+- **Cross-episode promos follow the story's arc**, e.g. the heroine threatened with a red-hot iron in
+  episode 32, cut against her husband vowing to return as the Duke in episode 36.
 
 Manual review of top picks against the script, and the failures found along the way, are logged in
 [`docs/DESIGN.md`](docs/DESIGN.md#quality-review-log).
@@ -292,6 +302,10 @@ Manual review of top picks against the script, and the failures found along the 
   them weakens the rules backend (the LLM backend is less affected).
 - **Cross-episode promos require the LLM backend**, and the model may place a later scene before an earlier
   one as a flashback. File order is not story order, so code cannot enforce chronology; the editor checks it.
+- **Trimming an overlong promo can cut its cliffhanger.** When snapping pushes a promo past 60 s, the
+  validator shortens the end of the last segment, which is where the cliffhanger is (see Results).
+- **Openings can clip a line.** Start cuts are not checked against dialogue, so 7 of 55 LLM promos (8 of 141
+  rules) open partway through a spoken line, mostly in its last second. Moving the start to the next line or shot would fix it.
 - **LLM self-scores are lenient** (most promos rate 4–5 of 5). Ranking leans on the blend with rule
   features; a pairwise comparison of the top candidates would discriminate better.
 - **Screenplay time is assumed to equal final-cut time.** If the edit drifts, timestamps need an offset.

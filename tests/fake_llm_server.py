@@ -4,6 +4,8 @@ Behaviour by model name:
   retired -> HTTP 404 "no longer available"      (provider retired the model)
   busy    -> HTTP 503 "high demand"              (overloaded; client should fall back)
   noquota -> HTTP 429 with a per-day quota id    (daily free-tier quota exhausted)
+  dropped -> closes the connection without replying (what an overloaded server sometimes does)
+  nullchoices -> HTTP 200 with "choices": null  (malformed reply)
   other   -> per episode in the prompt: one plausible promo from real timestamps plus one deliberately broken
              promo (too short); the batch's LAST episode gets only the broken one, which forces a repair.
              The repair call regenerates good promos from the transcript it is re-sent.
@@ -11,6 +13,7 @@ Run:  python tests/fake_llm_server.py 8765
 """
 import json
 import re
+import socket
 import sys
 from http.server import BaseHTTPRequestHandler, HTTPServer
 
@@ -70,6 +73,12 @@ class H(BaseHTTPRequestHandler):
 
     def do_POST(self):
         body = json.loads(self.rfile.read(int(self.headers["Content-Length"])))
+        if body.get("model") == "dropped":
+            self.close_connection = True
+            self.connection.shutdown(socket.SHUT_RDWR)
+            return
+        if body.get("model") == "nullchoices":
+            return self._send(200, {"choices": None})
         if body.get("model") in ERRORS:
             code, err = ERRORS[body["model"]]
             return self._send(code, [{"error": err}])
